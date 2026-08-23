@@ -1,9 +1,9 @@
-type Option = {
+export type Option = {
   flags: string;
   description: string;
 };
 
-type Section = {
+export type Section = {
   title: string;
   lines: string[];
 };
@@ -13,7 +13,7 @@ export type Command = {
   description: string;
   options?: Option[];
   sections?: Section[];
-  handler: () => Promise<void>;
+  handler: (argv: any) => Promise<void>;
 };
 
 function output(text: string) {
@@ -36,7 +36,10 @@ Options:
 Commands:
 `;
 
-  for (const [name, command] of Object.entries(commands)) {
+  const entries = Object.entries(commands)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  for (const [name, command] of entries) {
     outputText += `  ${name.padEnd(14)}${command.description}\n`;
   }
 
@@ -63,19 +66,19 @@ ${command.description}
     },
   ];
 
-if (options.length > 0) {
-  outputText += `
+  if (options.length > 0) {
+    outputText += `
 Options:
 `;
 
-  const flagWidth = Math.max(
-    ...options.map((option) => option.flags.length),
-  ) + 2;
+    const flagWidth = Math.max(
+      ...options.map((option) => option.flags.length),
+    ) + 2;
 
-  for (const option of options) {
-    outputText += `  ${option.flags.padEnd(flagWidth)}${option.description}\n`;
+    for (const option of options) {
+      outputText += `  ${option.flags.padEnd(flagWidth)}${option.description}\n`;
+    }
   }
-}
 
   for (const section of command.sections ?? []) {
     outputText += `

@@ -1,54 +1,61 @@
 #!/usr/bin/env bun
 
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
+
 import { commands } from "./src/commands/index.ts";
-import {
-  showHelp,
-  showCommandHelp,
-} from "./src/help/index.ts";
 
 const packageJson = await Bun.file(
   new URL("./package.json", import.meta.url),
 ).json();
 
-const args = process.argv.slice(2);
+const args = hideBin(process.argv);
 
-const isHelp = (value?: string) =>
-  value === "-h" || value === "--help";
+const cli = yargs(
+  args.length === 0 ? ["--help"] : args,
+)
+  .scriptName("scc")
+  .locale("en")
+  .version(packageJson.version)
+  .alias("v", "version")
+  .help("help", "output usage information")
+  .alias("h", "help");
 
-if (args.length === 0) {
-  showHelp(commands);
-  process.exit(0);
+cli.command(
+  "help",
+  "output usage information",
+  () => {},
+  () => {
+    cli.showHelp();
+  },
+);
+
+const sortedCommands = Object.entries(commands).sort(
+  ([a], [b]) => a.localeCompare(b),
+);
+
+for (const [name, command] of sortedCommands) {
+  cli.command({
+    command: [name, ...(command.aliases ?? [])],
+
+    describe: command.description,
+
+    builder: (yargs) => {
+      for (const option of command.options ?? []) {
+        yargs.option(option.name, {
+          alias: option.alias,
+          type: option.type,
+          description: option.description,
+        });
+      }
+
+      return yargs;
+    },
+
+    handler: async (argv) => {
+      await command.handler(argv);
+    },
+  });
 }
 
-if (isHelp(args[0])) {
-  showHelp(commands);
-  process.exit(0);
-}
-
-if (
-  args[0] === "-v" ||
-  args[0] === "--version"
-) {
-  console.log(packageJson.version);
-  process.exit(0);
-}
-
-const commandName = args[0];
-const command = commands[commandName];
-
-if (!command) {
-  console.error(
-    `Invalid command: ${commandName}`,
-  );
-  console.error(
-    "Use `scc --help` for a list of available commands.",
-  );
-  process.exit(1);
-}
-
-if (isHelp(args[1])) {
-  showCommandHelp(command);
-  process.exit(0);
-}
-
-await command.handler();
+await cli.parseAsync();

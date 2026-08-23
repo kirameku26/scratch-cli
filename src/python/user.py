@@ -1,35 +1,79 @@
 import asyncio
 import json
-import os
+import sys
 
 import scapi
 
 
-CONFIG_PATH = os.path.expanduser("~/.config/scc/config.json")
+async def get_user(
+    session_id: str,
+    username: str | None = None,
+):
+    async with scapi.session_login(session_id) as session:
+        if username:
+            user = await session.get_user(username)
+        else:
+            user = await session.get_user(session.username)
 
+        data = {}
 
-def load_config():
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        for name in dir(user):
+            if name.startswith("_"):
+                continue
+
+            try:
+                value = getattr(user, name)
+
+                if callable(value):
+                    continue
+
+                data[name] = value
+            except Exception:
+                continue
+
+        print(json.dumps(
+            data,
+            ensure_ascii=False,
+            default=str,
+        ))
 
 
 async def main():
-    config = load_config()
-
-    session_id = config.get("scratchsessionsid")
-
-    if not session_id:
-        print("Not logged in.")
+    if len(sys.argv) < 2:
+        print(json.dumps({
+            "error": "Session ID is required."
+        }))
         return
 
-    print("Session ID length:", len(session_id))
-    print("First char:", repr(session_id[:1]))
-    print("Last char:", repr(session_id[-1:]))
+    session_id = sys.argv[1]
 
-    async with scapi.session_login(session_id) as session:
-        print("Login successful.")
-        print("Username:", session.username)
-        print("User ID:", session.user_id)
+    username = None
+
+    args = sys.argv[2:]
+
+    if args:
+        if args[0] == "--user":
+            if len(args) < 2:
+                print(json.dumps({
+                    "error": "--user requires a username."
+                }))
+                return
+
+            username = args[1]
+
+            if len(args) > 2:
+                print(json.dumps({
+                    "error": f"Unknown argument: {args[2]}"
+                }))
+                return
+
+        else:
+            print(json.dumps({
+                "error": f"Unknown option: {args[0]}"
+            }))
+            return
+
+    await get_user(session_id, username)
 
 
 if __name__ == "__main__":

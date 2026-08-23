@@ -2,9 +2,13 @@ import { loadConfig } from "../config.ts";
 import { venvDir } from "./index.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
-const scriptPath = new URL("./user.py", import.meta.url);
+const scriptPath = new URL("../python/user.py", import.meta.url);
 
-export async function getLoggedInUser() {
+export async function getLoggedInUser(
+  argv: {
+    user?: string;
+  } = {},
+) {
   const config = await loadConfig();
 
   if (!config.scratchsessionsid) {
@@ -12,11 +16,17 @@ export async function getLoggedInUser() {
     return;
   }
 
-  const result = Bun.spawnSync([
+  const pythonArgs = [
     pythonPath,
     scriptPath.pathname,
     config.scratchsessionsid,
-  ], {
+  ];
+
+  if (argv.user) {
+    pythonArgs.push("--user", argv.user);
+  }
+
+  const result = Bun.spawnSync(pythonArgs, {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -33,7 +43,7 @@ export async function getLoggedInUser() {
     if (stderr) {
       console.error(stderr);
     } else {
-      console.error("Failed to get logged-in user.");
+      console.error("Failed to get user information.");
     }
 
     return;
@@ -42,8 +52,9 @@ export async function getLoggedInUser() {
   try {
     const user = JSON.parse(stdout);
 
-    console.log(`Username: ${user.username}`);
-    console.log(`User ID: ${user.user.id}`);
+    console.log(
+      JSON.stringify(user, null, 2),
+    );
   } catch {
     console.error("Failed to parse Scapi response.");
     console.error(stdout);

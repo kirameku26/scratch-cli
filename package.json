@@ -8,9 +8,22 @@
     "scc": "./index.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/yargs": "^17.0.35"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "scripts": {
+    "completion": "bun src/completion/generate.ts"
+  },
+  "dependencies": {
+    "@scratch/scratch-gui": "^15.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "yargs": "^18.1.0"
+  },
+  "yargs": {
+    "boolean-negation": false
   }
 }

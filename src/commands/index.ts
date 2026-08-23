@@ -2,29 +2,34 @@ import { login } from "./login.ts";
 import { logout } from "./logout.ts";
 import { session } from "./session.ts";
 import { python } from "./python.ts";
-import { showHelp } from "../help/index.ts";
 import { user } from "./user.ts";
 
-export const commands = {
-  help: {
-    usage: "scc help",
-    description: "display help information",
-    options: [],
-    handler: async () => {
-      showHelp(commands);
-    },
-  },
+export type Option = {
+  name: string;
+  alias?: string;
+  type: "string" | "boolean";
+  description: string;
+};
 
+export type Command = {
+  description: string;
+  aliases?: string[];
+  options?: Option[];
+  handler: (argv: any) => Promise<void>;
+};
+
+export const commands: Record<string, Command> = {
   login: {
-    usage: "scc login [options]",
     description: "login to Scratch",
     options: [
       {
-        flags: "--username <username>",
+        name: "username",
+        type: "string",
         description: "Scratch username",
       },
       {
-        flags: "--password <password>",
+        name: "password",
+        type: "string",
         description: "Scratch password",
       },
     ],
@@ -32,37 +37,37 @@ export const commands = {
   },
 
   logout: {
-    usage: "scc logout",
     description: "logout from Scratch",
-    options: [],
     handler: logout,
   },
 
   session: {
-    usage: "scc session",
     description: "check login status",
-    options: [],
+    aliases: ["s"],
     handler: session,
   },
 
   python: {
-    usage: "scc python",
     description: "check Python installation",
-    options: [],
     handler: python,
   },
 
   user: {
-    usage: "scc user",
-    description: "show the logged-in Scratch user",
-    options: [],
+    description: "show Scratch user information",
+    aliases: ["u"],
+    options: [
+      {
+        name: "user",
+        alias: "u",
+        type: "string",
+        description: "show information for a specific user",
+      },
+    ],
     handler: user,
   },
 
   version: {
-    usage: "scc version",
     description: "output the version number",
-    options: [],
     handler: async () => {
       const packageJson = await Bun.file(
         new URL("../../package.json", import.meta.url),
@@ -71,4 +76,4 @@ export const commands = {
       console.log(packageJson.version);
     },
   },
-} as const;
+};
