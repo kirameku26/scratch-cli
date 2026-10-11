@@ -36,16 +36,25 @@ const sortedCommands = Object.entries(commands).sort(
 
 for (const [name, command] of sortedCommands) {
   cli.command({
-    command: [name, ...(command.aliases ?? [])],
+    command: [command.command ?? name, ...(command.aliases ?? [])],
 
     describe: command.description,
 
     builder: (yargs) => {
+      for (const positional of command.positionals ?? []) {
+        yargs.positional(positional.name, {
+          type: positional.type,
+          description: positional.description,
+          choices: positional.choices,
+        });
+      }
+
       for (const option of command.options ?? []) {
         yargs.option(option.name, {
           alias: option.alias,
           type: option.type,
           description: option.description,
+          default: option.default,
         });
       }
 

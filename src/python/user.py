@@ -3,78 +3,84 @@ import json
 import sys
 
 import scapi
+from scapi.utils.error import NotFound
 
 
-async def get_user(
-    session_id: str,
-    username: str | None = None,
-):
-    async with scapi.session_login(session_id) as session:
-        if username:
-            user = await session.get_user(username)
-        else:
-            user = await session.get_user(session.username)
-
-        data = {}
-
-        for name in dir(user):
-            if name.startswith("_"):
-                continue
-
-            try:
-                value = getattr(user, name)
-
-                if callable(value):
-                    continue
-
-                data[name] = value
-            except Exception:
-                continue
-
-        print(json.dumps(
-            data,
-            ensure_ascii=False,
-            default=str,
-        ))
+USER_FIELDS = [
+    "bio",
+    "comments_allowed",
+    "country",
+    "exist",
+    "icon_url",
+    "id",
+    "is_myself",
+    "is_scratcher",
+    "joined_at",
+    "membership_avatar_badge",
+    "membership_label",
+    "profile_id",
+    "scratchteam",
+    "status",
+    "url",
+    "username",
+]
 
 
 async def main():
-    if len(sys.argv) < 2:
-        print(json.dumps({
-            "error": "Session ID is required."
-        }))
-        return
-
     session_id = sys.argv[1]
 
     username = None
 
-    args = sys.argv[2:]
-
-    if args:
-        if args[0] == "--user":
-            if len(args) < 2:
-                print(json.dumps({
-                    "error": "--user requires a username."
-                }))
-                return
-
-            username = args[1]
-
-            if len(args) > 2:
-                print(json.dumps({
-                    "error": f"Unknown argument: {args[2]}"
-                }))
-                return
-
-        else:
+    if len(sys.argv) >= 3 and sys.argv[2] == "--user":
+        if len(sys.argv) < 4:
             print(json.dumps({
-                "error": f"Unknown option: {args[0]}"
+                "error": "--user requires a username.",
             }))
-            return
+            return 1
 
-    await get_user(session_id, username)
+        username = sys.argv[3]
+
+    try:
+        async with scapi.session_login(session_id) as session:
+            if username:
+                target_username = username
+            else:
+                target_username = session.username
+
+            user = await session.get_user(target_username)
+
+            await user.load_website()
+
+            data = {
+                field: getattr(user, field, None)
+                for field in USER_FIELDS
+            }
+
+            print(json.dumps(
+                data,
+                default=str,
+                ensure_ascii=False,
+                indent=2,
+            ))
+
+    except NotFound:
+        print(json.dumps({
+            "error": "User not found",
+            "username": username,
+        }, ensure_ascii=False))
+
+        return 1
+
+    except Exception as e:
+        print(json.dumps({
+            "error": str(e),
+            "type": type(e).__name__,
+        }, ensure_ascii=False))
+
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))

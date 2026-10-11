@@ -4,7 +4,7 @@ import { venvDir } from "./index.ts";
 const pythonPath = `${venvDir}/bin/python`;
 const scriptPath = new URL("../python/user.py", import.meta.url);
 
-export async function getLoggedInUser(
+export async function getUser(
   argv: {
     user?: string;
   } = {},
@@ -40,6 +40,19 @@ export async function getLoggedInUser(
     .trim();
 
   if (result.exitCode !== 0) {
+    if (stdout) {
+      try {
+        const error = JSON.parse(stdout);
+
+        if (error.error) {
+          console.error(error.error);
+          return;
+        }
+      } catch {
+        // stdout is not JSON
+      }
+    }
+
     if (stderr) {
       console.error(stderr);
     } else {
@@ -52,9 +65,45 @@ export async function getLoggedInUser(
   try {
     const user = JSON.parse(stdout);
 
-    console.log(
-      JSON.stringify(user, null, 2),
-    );
+    const labels: Record<string, string> = {
+      username: "Username",
+      id: "ID",
+      profile_id: "Profile ID",
+      icon_url: "Icon URL",
+      country: "Country",
+      joined_at: "Joined",
+      comments_allowed: "Comments Allowed",
+      exist: "Exist",
+      is_scratcher: "Is Scratcher",
+      classroom_id: "Classroom ID",
+      scratchteam: "Is Scratchteam",
+      membership_avatar_badge: "Membership Avatar Badge",
+      membership_label: "Membership Label",
+    };
+
+    for (const [key, label] of Object.entries(labels)) {
+      console.log(`${label}: ${user[key] ?? "None"}`);
+
+      if (key === "classroom_id") {
+        console.log("Bio:");
+        if(user.bio !== ""){
+          console.log(
+            typeof user.bio === "string"
+              ? user.bio.trim()
+              : user.bio ?? "None",
+          );
+        }
+
+        console.log("Status:");
+        if(user.status !== ""){
+          console.log(
+            typeof user.status === "string"
+              ? user.status.trim()
+              : user.status ?? "None",
+          );
+        }
+      }
+    }
   } catch {
     console.error("Failed to parse Scapi response.");
     console.error(stdout);

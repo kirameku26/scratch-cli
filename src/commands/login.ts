@@ -67,19 +67,6 @@ async function isLoggedIn(): Promise<boolean> {
   }
 }
 
-function getArgument(
-  args: string[],
-  name: string,
-): string | undefined {
-  const index = args.indexOf(name);
-
-  if (index === -1) {
-    return undefined;
-  }
-
-  return args[index + 1];
-}
-
 async function readInput(
   message: string,
 ): Promise<string> {
@@ -132,20 +119,18 @@ async function readHiddenInput(
   }
 }
 
-export async function login(
-  args: string[] = [],
-) {
+export async function login(argv: {
+  username?: string;
+  password?: string;
+} = {}) {
   // すでにログインしているか確認
   if (await isLoggedIn()) {
     console.log("Already logged in.");
     return;
   }
 
-  let username =
-    getArgument(args, "--username");
-
-  let password =
-    getArgument(args, "--password");
+  let username = argv.username;
+  let password = argv.password;
 
   if (!username) {
     username =
@@ -208,23 +193,55 @@ export async function login(
         "X-Requested-With":
           "XMLHttpRequest",
 
+        "Origin":
+          "https://scratch.mit.edu",
+
         "Referer":
           "https://scratch.mit.edu/",
 
         "Cookie":
-          `scratchcsrftoken=${scratchcsrftoken}`,
+          `scratchcsrftoken=${scratchcsrftoken}; scratchlanguage=en`,
       },
 
       body: JSON.stringify({
         username,
         password,
+        useMessages: true,
       }),
     },
   );
 
   if (!loginRes.ok) {
+    let message = "";
+
+    try {
+      const body: unknown = await loginRes.json();
+
+      if (Array.isArray(body)) {
+        const messages = body
+          .map((entry) => {
+            if (!entry || typeof entry !== "object") {
+              return undefined;
+            }
+
+            const msg = (entry as { msg?: unknown }).msg;
+            return typeof msg === "string" ? msg.trim() : undefined;
+          })
+          .filter((msg): msg is string => Boolean(msg));
+
+        message = [...new Set(messages)].join(" ");
+      } else if (body && typeof body === "object") {
+        const detail = (body as { detail?: unknown }).detail;
+        message = typeof detail === "string" ? detail.trim() : "";
+      }
+    } catch {
+      // Keep the status as the fallback when the response is not JSON.
+    }
+
     console.error(
-      `Login failed: ${loginRes.status}`,
+      message
+        ? `Login failed: ${message}`
+        : `Login failed: ${loginRes.status}`,
     );
     return;
   }

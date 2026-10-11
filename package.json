@@ -12,16 +12,16 @@
     "@types/yargs": "^17.0.35"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "scripts": {
     "completion": "bun src/completion/generate.ts"
   },
   "dependencies": {
-    "@scratch/scratch-gui": "^15.0.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "yargs": "^18.1.0"
+    "@scratch/scratch-gui": "^15.2.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "yargs": "^18.2.0"
   },
   "yargs": {
     "boolean-negation": false

@@ -2,19 +2,30 @@ import { login } from "./login.ts";
 import { logout } from "./logout.ts";
 import { session } from "./session.ts";
 import { python } from "./python.ts";
+import { search } from "./search.ts";
 import { user } from "./user.ts";
 
 export type Option = {
   name: string;
   alias?: string;
-  type: "string" | "boolean";
+  type: "string" | "boolean" | "number";
   description: string;
+  default?: string | boolean | number;
+};
+
+export type Positional = {
+  name: string;
+  type: "string" | "number";
+  description: string;
+  choices?: readonly string[];
 };
 
 export type Command = {
+  command?: string;
   description: string;
   aliases?: string[];
   options?: Option[];
+  positionals?: Positional[];
   handler: (argv: any) => Promise<void>;
 };
 
@@ -50,6 +61,39 @@ export const commands: Record<string, Command> = {
   python: {
     description: "check Python installation",
     handler: python,
+  },
+
+  search: {
+    command: "search <type> <query>",
+    description: "search Scratch projects",
+    positionals: [
+      {
+        name: "type",
+        type: "string",
+        description: "type of resource to search",
+        choices: ["project"],
+      },
+      {
+        name: "query",
+        type: "string",
+        description: "search query",
+      },
+    ],
+    options: [
+      {
+        name: "limit",
+        type: "number",
+        description: "maximum number of results",
+        default: 10,
+      },
+      {
+        name: "offset",
+        type: "number",
+        description: "number of results to skip",
+        default: 0,
+      },
+    ],
+    handler: search,
   },
 
   user: {
