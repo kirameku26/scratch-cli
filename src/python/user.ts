@@ -1,8 +1,32 @@
 import { loadConfig } from "../config.ts";
 import { venvDir } from "./index.ts";
+import { fail } from "../errors.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
 const scriptPath = new URL("../python/user.py", import.meta.url);
+
+export function buildUserProcess(
+  sessionId: string,
+  username?: string,
+) {
+  const args = [
+    pythonPath,
+    scriptPath.pathname,
+  ];
+
+  if (username) {
+    args.push("--user", username);
+  }
+
+  return {
+    args,
+    stdin: new Blob([
+      JSON.stringify({
+        session_id: sessionId,
+      }),
+    ]),
+  };
+}
 
 export async function getUser(
   argv: {
@@ -12,21 +36,17 @@ export async function getUser(
   const config = await loadConfig();
 
   if (!config.scratchsessionsid) {
-    console.error("No active session.");
+    fail("No active session.");
     return;
   }
 
-  const pythonArgs = [
-    pythonPath,
-    scriptPath.pathname,
+  const processInput = buildUserProcess(
     config.scratchsessionsid,
-  ];
+    argv.user,
+  );
 
-  if (argv.user) {
-    pythonArgs.push("--user", argv.user);
-  }
-
-  const result = Bun.spawnSync(pythonArgs, {
+  const result = Bun.spawnSync(processInput.args, {
+    stdin: processInput.stdin,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -45,7 +65,7 @@ export async function getUser(
         const error = JSON.parse(stdout);
 
         if (error.error) {
-          console.error(error.error);
+          fail(error.error);
           return;
         }
       } catch {
@@ -54,9 +74,9 @@ export async function getUser(
     }
 
     if (stderr) {
-      console.error(stderr);
+      fail(stderr);
     } else {
-      console.error("Failed to get user information.");
+      fail("Failed to get user information.");
     }
 
     return;
@@ -105,7 +125,7 @@ export async function getUser(
       }
     }
   } catch {
-    console.error("Failed to parse Scapi response.");
+    fail("Failed to parse Scapi response.");
     console.error(stdout);
   }
 }

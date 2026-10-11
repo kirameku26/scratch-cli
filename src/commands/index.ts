@@ -38,11 +38,6 @@ export const commands: Record<string, Command> = {
         type: "string",
         description: "Scratch username",
       },
-      {
-        name: "password",
-        type: "string",
-        description: "Scratch password",
-      },
     ],
     handler: login,
   },
@@ -118,6 +113,17 @@ export const commands: Record<string, Command> = {
       ).json();
 
       console.log(packageJson.version);
+    },
+  },
+
+  completion: {
+    description: "output zsh completion script",
+    handler: async () => {
+      const completion = await Bun.file(
+        new URL("../completion/_scc", import.meta.url),
+      ).text();
+
+      process.stdout.write(completion);
     },
   },
 };

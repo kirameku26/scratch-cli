@@ -5,12 +5,13 @@ import {
 
 import { ensureVenv } from "../python/venv.ts";
 import { ensureScapi } from "../python/scapi.ts";
+import { fail } from "../errors.ts";
 
 export async function python() {
   const command = findPython();
 
   if (!command) {
-    console.error("Python was not found.");
+    fail("Python was not found.");
     return;
   }
 
@@ -30,9 +31,7 @@ export async function python() {
     await ensureVenv();
 
   if (!venvSuccess) {
-    console.error(
-      "Failed to create Python virtual environment.",
-    );
+    fail("Failed to create Python virtual environment.");
     return;
   }
 
@@ -44,9 +43,7 @@ export async function python() {
     await ensureScapi();
 
   if (!scapiSuccess) {
-    console.error(
-      "Failed to install or update Scapi.",
-    );
+    fail("Failed to install or update Scapi.");
     return;
   }
 

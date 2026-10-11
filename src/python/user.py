@@ -27,18 +27,28 @@ USER_FIELDS = [
 
 
 async def main():
-    session_id = sys.argv[1]
+    try:
+        payload = json.load(sys.stdin)
+        session_id = payload.get("session_id")
+    except (json.JSONDecodeError, AttributeError):
+        session_id = None
+
+    if not isinstance(session_id, str) or not session_id:
+        print(json.dumps({
+            "error": "A valid session is required.",
+        }))
+        return 1
 
     username = None
 
-    if len(sys.argv) >= 3 and sys.argv[2] == "--user":
-        if len(sys.argv) < 4:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--user":
+        if len(sys.argv) < 3:
             print(json.dumps({
                 "error": "--user requires a username.",
             }))
             return 1
 
-        username = sys.argv[3]
+        username = sys.argv[2]
 
     try:
         async with scapi.session_login(session_id) as session:

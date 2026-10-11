@@ -1,11 +1,12 @@
 import {
+  chmod,
   mkdir,
   readFile,
   writeFile,
 } from "node:fs/promises";
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const configDir = join(
   homedir(),
@@ -13,7 +14,7 @@ const configDir = join(
   "scc",
 );
 
-const configPath = join(
+const defaultConfigPath = join(
   configDir,
   "config.json",
 );
@@ -24,7 +25,9 @@ export interface Config {
   "x-token"?: string;
 }
 
-export async function loadConfig(): Promise<Config> {
+export async function loadConfig(
+  configPath = defaultConfigPath,
+): Promise<Config> {
   try {
     const data = await readFile(
       configPath,
@@ -39,8 +42,11 @@ export async function loadConfig(): Promise<Config> {
 
 export async function saveConfig(
   config: Config,
+  configPath = defaultConfigPath,
 ): Promise<void> {
-  await mkdir(configDir, {
+  const targetDir = dirname(configPath);
+
+  await mkdir(targetDir, {
     recursive: true,
     mode: 0o700,
   });
@@ -53,4 +59,6 @@ export async function saveConfig(
       mode: 0o600,
     },
   );
+
+  await chmod(configPath, 0o600);
 }

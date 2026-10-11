@@ -1,4 +1,5 @@
 import { venvDir } from "./index.ts";
+import { fail } from "../errors.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
 const scriptPath = new URL("./search.py", import.meta.url);
@@ -21,11 +22,6 @@ type SearchProjectsArguments = {
   limit: number;
   offset: number;
 };
-
-function fail(message: string): void {
-  console.error(message);
-  process.exitCode = 1;
-}
 
 function isProjectSearchResponse(
   value: unknown,

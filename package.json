@@ -15,7 +15,9 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "completion": "bun src/completion/generate.ts"
+    "completion": "bun index.ts completion",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@scratch/scratch-gui": "^15.2.0",

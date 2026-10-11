@@ -1,0 +1,43 @@
+#compdef scc
+
+_scc() {
+  local -a commands
+
+  if (( CURRENT == 2 )); then
+    commands=(
+      'help:output usage information'
+      'login:login to Scratch'
+      'logout:logout from Scratch'
+      'session:check login status'
+      's:check login status'
+      'python:check Python installation'
+      'search:search Scratch projects'
+      'user:show Scratch user information'
+      'u:show Scratch user information'
+      'version:output the version number'
+      'completion:output zsh completion script'
+    )
+    _describe 'scc command' commands
+    _arguments '(-h --help)'{-h,--help}'[output usage information]' \
+      '(-v --version)'{-v,--version}'[Show version number]'
+    return
+  fi
+
+  case "$words[2]" in
+    login)
+      _arguments '--username[Scratch username]:username:'
+      ;;
+    search)
+      if (( CURRENT == 3 )); then
+        compadd project
+      fi
+      _arguments '--limit[maximum number of results]:limit:' \
+        '--offset[number of results to skip]:offset:'
+      ;;
+    user|u)
+      _arguments '(-u --user)'{-u,--user}'[show information for a specific user]:username:'
+      ;;
+  esac
+}
+
+compdef _scc scc
