@@ -49,6 +49,32 @@ function optionalText(value: unknown): value is string | null {
   return typeof value === "string" || value === null;
 }
 
+function validFeaturedProject(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const project = value as Record<string, unknown>;
+  return Number.isSafeInteger(project.id)
+    && optionalText(project.title)
+    && typeof project.url === "string"
+    && typeof project.label === "string";
+}
+
+function validActivity(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const activity = value as Record<string, unknown>;
+  return typeof activity.action === "string"
+    && optionalText(activity.actor)
+    && optionalText(activity.target_title)
+    && optionalText(activity.target_url)
+    && optionalText(activity.when);
+}
+
 function validAbout(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object") {
     return false;
@@ -56,12 +82,16 @@ function validAbout(value: unknown): value is Record<string, unknown> {
   const about = value as Record<string, unknown>;
   return (Number.isSafeInteger(about.id) || about.id === null)
     && typeof about.username === "string"
+    && optionalText(about.role)
     && optionalText(about.country)
     && optionalText(about.joined_at)
     && optionalText(about.bio)
     && optionalText(about.status)
     && optionalText(about.icon_url)
-    && typeof about.url === "string";
+    && typeof about.url === "string"
+    && validFeaturedProject(about.featured_project)
+    && Array.isArray(about.activities)
+    && about.activities.every(validActivity);
 }
 
 function validComment(value: Record<string, unknown>): boolean {
@@ -120,6 +150,7 @@ function displayAbout(about: Record<string, unknown>): void {
     console.log(`${label}: ${typeof value === "string" ? cleanText(value) || "None" : value ?? "None"}`);
 
   line("Username", about.username);
+  line("Role", about.role);
   line("ID", about.id);
   line("Country", about.country);
   line("Joined", about.joined_at);
@@ -131,6 +162,48 @@ function displayAbout(about: Record<string, unknown>): void {
   console.log("");
   console.log("What I'm working on:");
   console.log(typeof about.status === "string" ? cleanMultiline(about.status) || "None" : "None");
+
+  console.log("");
+  const featured = about.featured_project as Record<string, unknown> | null;
+  console.log(`${featured ? cleanText(featured.label as string) || "Featured Project" : "Featured Project"}:`);
+  if (featured) {
+    console.log(typeof featured.title === "string" ? cleanText(featured.title) : `Project #${featured.id}`);
+    console.log(`URL: ${cleanText(featured.url as string)}`);
+  } else {
+    console.log("None");
+  }
+
+  console.log("");
+  console.log("Recent activity:");
+  const activities = about.activities as Record<string, unknown>[];
+  if (activities.length === 0) {
+    console.log("No recent activity found.");
+    return;
+  }
+  const actionLabels: Record<string, string> = {
+    project: "shared a project",
+    love: "loved a project",
+    favorite: "favorited a project",
+    remix: "remixed a project",
+    studio: "was active in a studio",
+    follow: "followed a user",
+    comment: "commented",
+  };
+  for (const [index, activity] of activities.entries()) {
+    const actor = typeof activity.actor === "string"
+      ? cleanText(activity.actor)
+      : cleanText(about.username as string);
+    const action = actionLabels[activity.action as string] ?? "was active";
+    const target = typeof activity.target_title === "string"
+      ? `: ${cleanText(activity.target_title)}` : "";
+    console.log(`${index + 1}. ${actor} ${action}${target}`);
+    if (typeof activity.when === "string") {
+      console.log(`   When: ${cleanText(activity.when)}`);
+    }
+    if (typeof activity.target_url === "string") {
+      console.log(`   URL: ${cleanText(activity.target_url)}`);
+    }
+  }
 }
 
 function displayItem(

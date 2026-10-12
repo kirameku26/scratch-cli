@@ -82,12 +82,26 @@ test("profile renderer keeps safe line breaks in About me", async () => {
     about: {
       id: 1,
       username: "example",
+      role: "Scratcher",
       country: "Japan",
       joined_at: null,
       bio: "First line\nSecond line\x1b[31m",
       status: "Building a game",
       icon_url: null,
       url: "https://scratch.mit.edu/users/example/",
+      featured_project: {
+        id: 42,
+        title: "Featured game",
+        url: "https://scratch.mit.edu/projects/42/",
+        label: "Tutorial",
+      },
+      activities: [{
+        action: "project",
+        actor: "example",
+        target_title: "New game",
+        target_url: "https://scratch.mit.edu/projects/43/",
+        when: "2 days ago",
+      }],
     },
   };
   const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => ({
@@ -102,8 +116,12 @@ test("profile renderer keeps safe line breaks in About me", async () => {
       username: "example", section: "about", limit: 10, offset: 0, page: 1,
     });
     const rendered = output.mock.calls.map((call) => call[0]).join("\n");
+    expect(rendered).toContain("Role: Scratcher");
     expect(rendered).toContain("Country: Japan");
     expect(rendered).toContain("About me:\nFirst line\nSecond line [31m");
+    expect(rendered).toContain("Tutorial:\nFeatured game");
+    expect(rendered).toContain("1. example shared a project: New game");
+    expect(rendered).toContain("When: 2 days ago");
     expect(rendered).not.toContain("\x1b");
   } finally {
     spawn.mockRestore();

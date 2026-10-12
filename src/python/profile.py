@@ -15,6 +15,7 @@ SECTIONS = (
     "following", "followers", "comments",
 )
 STUDIO_PATH = re.compile(r"/studios/(\d+)/?")
+USER_IMAGE_PATH = re.compile(r"/get_image/user/(\d+)_")
 API_BASE = "https://api.scratch.mit.edu/users"
 
 
@@ -82,6 +83,105 @@ def output_error(message):
     print(json.dumps({"error": message}))
 
 
+def profile_text(node):
+    if node is None:
+        return None
+    for line_break in node.find_all("br"):
+        line_break.replace_with("\n")
+    lines = [re.sub(r"[ \t]+", " ", line).strip()
+             for line in node.get_text().splitlines()]
+    return "\n".join(line for line in lines if line) or None
+
+
+def scratch_url(href):
+    if not isinstance(href, str):
+        return None
+    url = urljoin("https://scratch.mit.edu/", href)
+    parsed = urlsplit(url)
+    return url if parsed.scheme == "https" and (
+        parsed.netloc == "scratch.mit.edu"
+        or parsed.netloc.endswith(".scratch.mit.edu")
+    ) else None
+
+
+FEATURED_LABELS = {
+    "ProjectFeatured": "Featured Project",
+    "Tutorial": "Tutorial",
+    "WorkInProgress": "Work in Progress",
+    "RemixThis": "Remix This",
+    "MyFavoriteThings": "My Favorite Things",
+    "WhyIScratch": "Why I Scratch",
+}
+
+
+def serialize_featured(featured):
+    if featured is None:
+        return None
+    project = featured.project
+    project_id = getattr(project, "id", None)
+    if not isinstance(project_id, int) or isinstance(project_id, bool):
+        raise InvalidProfileResponse()
+    label_name = getattr(getattr(featured, "label", None), "name", None)
+    return {
+        "id": project_id,
+        "title": text_or_none(getattr(project, "title", None)),
+        "url": f"https://scratch.mit.edu/projects/{project_id}/",
+        "label": FEATURED_LABELS.get(label_name, "Featured Project"),
+    }
+
+
+def parse_profile_page(html, username):
+    soup = BeautifulSoup(html, "html.parser")
+    box = soup.select_one("#profile-data")
+    if box is None:
+        raise InvalidProfileResponse()
+
+    header = box.select_one(".header-text")
+    displayed_name = profile_text(header.select_one("h2")) if header else None
+    if not displayed_name:
+        raise InvalidProfileResponse()
+
+    role = profile_text(header.select_one(".profile-details .group"))
+    joined = header.select_one(".profile-details span[title]")
+    country = profile_text(header.select_one(".profile-details .location"))
+    portrait = box.select_one("#profile-avatar img[src]")
+    icon_url = scratch_url(portrait.get("src")) if portrait else None
+    user_id_match = USER_IMAGE_PATH.search(icon_url or "")
+
+    activities = []
+    for item in box.select("#activity-feed .activity-stream > li")[:10]:
+        icon = item.select_one(".icon-xs")
+        classes = icon.get("class", []) if icon else []
+        action = next((name for name in (
+            "project", "love", "favorite", "remix", "studio", "follow", "comment"
+        ) if name in classes), "activity")
+        actor = profile_text(item.select_one(".actor"))
+        target_link = item.select_one('a[data-tag="object"]') or item.select_one("a[href]")
+        target_title = profile_text(target_link) if target_link else None
+        target_url = scratch_url(target_link.get("href")) if target_link else None
+        when = profile_text(item.select_one('[data-tag="time"]'))
+        activities.append({
+            "action": action,
+            "actor": actor,
+            "target_title": target_title,
+            "target_url": target_url,
+            "when": when,
+        })
+
+    return {
+        "id": int(user_id_match.group(1)) if user_id_match else None,
+        "username": displayed_name,
+        "role": role,
+        "country": country,
+        "joined_at": text_or_none(joined.get("title")) if joined else None,
+        "bio": profile_text(box.select_one("#bio-readonly .overview")),
+        "status": profile_text(box.select_one("#status-readonly .overview")),
+        "icon_url": icon_url,
+        "url": f"https://scratch.mit.edu/users/{quote(username)}/",
+        "activities": activities,
+    }
+
+
 async def api_json(client, url, params=None):
     response = await client.get(url, params=params) if params else await client.get(url)
     try:
@@ -125,27 +225,11 @@ def serialize_api_item(item, section):
 
 
 async def fetch_about(client, username):
-    data = await api_json(client, f"{API_BASE}/{quote(username)}")
-    if not isinstance(data, dict):
-        raise InvalidProfileResponse()
-
-    profile = data.get("profile")
-    history = data.get("history")
-    if not isinstance(profile, dict) or not isinstance(history, dict):
-        raise InvalidProfileResponse()
-
-    images = profile.get("images")
-    return {
-        "id": data.get("id"),
-        "username": text_or_none(data.get("username")) or username,
-        "country": text_or_none(profile.get("country")),
-        "joined_at": text_or_none(history.get("joined")),
-        "bio": text_or_none(profile.get("bio")),
-        "status": text_or_none(profile.get("status")),
-        "icon_url": text_or_none(images.get("90x90"))
-        if isinstance(images, dict) else None,
-        "url": f"https://scratch.mit.edu/users/{quote(username)}/",
-    }
+    response = await client.get(f"https://scratch.mit.edu/users/{quote(username)}/")
+    about = parse_profile_page(response.text, username)
+    user = scapi.User(username, client, is_real=True)
+    about["featured_project"] = serialize_featured(await user.get_featured())
+    return about
 
 
 async def fetch_items(client, username, section, limit, offset, page):

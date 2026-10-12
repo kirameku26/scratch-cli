@@ -7,7 +7,7 @@ After `scc login`, run `scc account` to view details for the active Scratch acco
 
 ## Profiles and public lists
 
-`scc profile` shows the logged-in user's "About me" and "What I'm working on" information. Use `--user` to view another user's public profile without logging in. Use `--list` to see the available sections without making a request.
+`scc profile` shows the logged-in user's public profile details, including "About me", "What I'm working on", featured project, and recent activity. Use `--user` to view another user's public profile without logging in. Use `--list` to see the available sections without making a request.
 
 ```bash
 scc profile

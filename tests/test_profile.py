@@ -35,17 +35,37 @@ class FakeClient:
                 <a href="/studios/789/"></a>
                 <a href="https://example.com/studios/999/">Ignore</a>
             """)
-        if url.endswith("/griffpatch"):
-            return types.SimpleNamespace(text=json.dumps({
-                "id": 1234,
-                "username": "griffpatch",
-                "profile": {
-                    "bio": "About me", "status": "Working on a game",
-                    "country": "United Kingdom",
-                    "images": {"90x90": "https://example.com/icon.png"},
-                },
-                "history": {"joined": "2012-10-24T12:59:31.000Z"},
-            }))
+        if url.endswith("/users/griffpatch/"):
+            return types.SimpleNamespace(text="""
+                <div id="profile-data">
+                  <form id="profile-avatar"><a href="/users/griffpatch/">
+                    <img src="//cdn2.scratch.mit.edu/get_image/user/1882674_60x60.png">
+                  </a></form>
+                  <div class="header-text"><h2>griffpatch</h2>
+                    <p class="profile-details"><span class="group">Scratcher</span>
+                      <span title="2012-10-24">13 years ago</span>
+                      <span class="location">United Kingdom</span>
+                    </p>
+                  </div>
+                  <div id="bio-readonly"><p class="overview">About me &amp; coding</p></div>
+                  <div id="status-readonly"><p class="overview">Working on a game<br>
+                    Me: <a href="/users/other/">@other</a></p></div>
+                  <div class="player"><a id="featured-project" href="/projects/12785898/">
+                    <img src="//cdn2.scratch.mit.edu/get_image/project/12785898_282x210.png">
+                    </a><a class="project-name" href="/projects/12785898/">Cloud Platformer</a>
+                  </div>
+                  <div id="activity-feed"><ul class="activity-stream">
+                    <li><span class="icon-xs black project"></span>
+                      <span class="actor">griffpatch</span>
+                      <a href="/projects/1367046445/" data-tag="object">FAST EARTH</a>
+                      <span data-tag="time">2 months ago</span></li>
+                    <li><span class="icon-xs black love"></span>
+                      <span class="actor">griffpatch</span>
+                      <a href="/projects/862083370/">Appel Let's Play</a>
+                      <span data-tag="time">4 months ago</span></li>
+                  </ul></div>
+                </div>
+            """)
         if url.endswith("/projects/") or url.endswith("/favorites/"):
             return types.SimpleNamespace(text=json.dumps([{
                 "id": 100,
@@ -68,6 +88,17 @@ class FakeUser:
         self.username = username
         self.client = client
         self.is_real = is_real
+
+    async def get_featured(self):
+        self.client.owner.requests.append((
+            f"https://scratch.mit.edu/site-api/users/all/{self.username}/", {}
+        ))
+        if self.client.owner.featured_missing:
+            return None
+        return types.SimpleNamespace(
+            project=types.SimpleNamespace(id=4242, title="Scapi project"),
+            label=types.SimpleNamespace(name=self.client.owner.featured_label),
+        )
 
     async def get_comments(self, start_page, end_page):
         self.client.owner.requests.append(("comments", (start_page, end_page)))
@@ -93,6 +124,8 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
         self.requests = []
         self.session_ids = []
         self.fail_request = None
+        self.featured_missing = False
+        self.featured_label = "ProjectFeatured"
         reply = types.SimpleNamespace(
             id=301, author=types.SimpleNamespace(username="replier"),
             content="Reply", created_at=datetime.datetime(2026, 1, 2),
@@ -164,15 +197,59 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response["section"], section)
                 self.assertEqual(len(response["items"]), 1)
 
-    async def test_about_uses_profile_fields(self):
+    async def test_about_uses_public_page_and_scapi_featured(self):
         code, response = await self.run_main(
             "griffpatch", "about", "10", "0", "1"
         )
         self.assertEqual(code, 0)
-        self.assertEqual(len(self.requests), 1)
-        self.assertEqual(response["about"]["bio"], "About me")
-        self.assertEqual(response["about"]["status"], "Working on a game")
-        self.assertEqual(response["about"]["country"], "United Kingdom")
+        self.assertEqual(len(self.requests), 2)
+        about = response["about"]
+        self.assertEqual(self.requests[0][0], "https://scratch.mit.edu/users/griffpatch/")
+        self.assertEqual(self.requests[1][0],
+                         "https://scratch.mit.edu/site-api/users/all/griffpatch/")
+        self.assertEqual(about["id"], 1882674)
+        self.assertEqual(about["role"], "Scratcher")
+        self.assertEqual(about["joined_at"], "2012-10-24")
+        self.assertEqual(about["bio"], "About me & coding")
+        self.assertEqual(about["status"], "Working on a game\nMe: @other")
+        self.assertEqual(about["country"], "United Kingdom")
+        self.assertEqual(about["featured_project"], {
+            "id": 4242, "title": "Scapi project",
+            "url": "https://scratch.mit.edu/projects/4242/",
+            "label": "Featured Project",
+        })
+        self.assertEqual([item["action"] for item in about["activities"]],
+                         ["project", "love"])
+        self.assertEqual(about["activities"][0]["target_title"], "FAST EARTH")
+        self.assertEqual(about["activities"][1]["target_url"],
+                         "https://scratch.mit.edu/projects/862083370/")
+
+    async def test_about_accepts_missing_optional_sections(self):
+        about = self.module.parse_profile_page(
+            '<div id="profile-data"><div class="header-text"><h2>example</h2>'
+            '</div></div>', "example"
+        )
+        self.assertEqual(about["activities"], [])
+        self.assertIsNone(about["bio"])
+
+    async def test_featured_label_varies_and_project_can_be_missing(self):
+        self.featured_label = "Tutorial"
+        code, response = await self.run_main(
+            "griffpatch", "about", "10", "0", "1"
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(response["about"]["featured_project"]["label"], "Tutorial")
+
+        self.featured_missing = True
+        code, response = await self.run_main(
+            "griffpatch", "about", "10", "0", "1"
+        )
+        self.assertEqual(code, 0)
+        self.assertIsNone(response["about"]["featured_project"])
+
+    async def test_about_rejects_non_profile_html(self):
+        with self.assertRaises(self.module.InvalidProfileResponse):
+            self.module.parse_profile_page("<html><body>Blocked</body></html>", "example")
 
     async def test_followed_studios_uses_later_title_and_image_alt(self):
         code, response = await self.run_main(
