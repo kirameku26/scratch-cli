@@ -7,7 +7,10 @@
 ## 現在の実装状況
 
 - Bun、TypeScript、yargsを使用した `scc` CLIを実装している。
-- `login`、`logout`、`session`、`user`、`search project`、`python`、`version` コマンドを実装している。
+- `login`、`logout`、`session`、`user`、`search project`、`python`、`version` コマンドを実装している。`account` はログイン中のアカウントの詳細を `user` の既存取得処理で表示する。
+- `explore project|studio` でScratchの傾向（既定）または人気の一覧を取得する。`--mode`、`--limit`（1～40）、`--offset` を指定できる。プロジェクトのみ `--category` で all（既定）/animations/art/games/music を選べる。
+- `notifications`（別名 `messages`）で現在のScratchアカウントの通知を閲覧する。`--limit`（1～40）、`--offset` を指定できる。
+- `profile [section] [--user <username>]` でプロフィール本文や公開一覧（共有作品、お気に入り作品、参加スタジオ、フォロー中のスタジオ、フォロー中のユーザー、フォロワー、コメント）を閲覧する。`--user` 省略時は保存済みセッションのユーザーを使用する。`--list` は利用可能なセクションを通信なしで表示する。旧形式 `profile <username> <section>` も受け付ける。
 - zsh向けの静的補完定義を `scc completion` から出力できる。
 - Scratchの認証情報は `~/.config/scc/config.json` に保存し、ファイルを所有者のみ読み書き可能な権限で作成する。
 - Scapiは `~/.config/scc/python/.venv` の専用Python仮想環境で利用する。
@@ -39,6 +42,9 @@
 - 認証情報をログやエラーメッセージに含めない。
 - ログアウト成功後は、使用していたセッションCookieを送ってセッションが無効になったことを確認してからローカル認証情報を削除する。
 - 外部APIを使う結合テストは通常の単体テストから分離する。
+- ExploreではScapiの `explore_projects` / `explore_studios` を認証なしで使用し、件数を40以下に制限して1回のAPIリクエストに収める。プロジェクトのカテゴリは `explore_projects` の `query` に渡し、all は `*` に変換する。スタジオにはカテゴリを適用しない。
+- 通知はScapiの `Session.get_messages()` で取得し、既読化する `clear_message()` は呼び出さない。セッション検証と通知取得を各1回行い、ユーザー名を結果に表示する。
+- プロフィールの公開一覧は原則としてScratch APIのJSONを1回取得して検証する（Scapi 3.2.4 の作品オブジェクト変換が一部レスポンスで失敗するため）。`about` はユーザーAPIの `profile.bio` / `profile.status` を取得する。フォロー中のスタジオは公開HTMLページ1回を解析し、同じスタジオの複数リンクからタイトルを補完する。コメントは1ページだけ取得し、同ページの返信キャッシュを表示する。`--user` 省略時のみセッション検証を追加し、認証情報は標準入力でPythonに渡す。自動巡回しない。
 
 ## 未解決の問題
 

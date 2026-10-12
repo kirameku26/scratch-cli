@@ -88,6 +88,7 @@ for (const [name, command] of sortedCommands) {
           type: option.type,
           description: option.description,
           default: option.default,
+          choices: option.choices,
         });
       }
 

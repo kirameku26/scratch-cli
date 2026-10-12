@@ -6,11 +6,16 @@ _scc() {
   if (( CURRENT == 2 )); then
     commands=(
       'help:output usage information'
+      'account:show details for the active Scratch account'
+      'explore:show trending or popular Scratch projects and studios'
       'login:login to Scratch'
       'logout:logout from Scratch'
+      'notifications:show Scratch notifications for the active account'
+      'messages:show Scratch notifications for the active account'
       'session:check login status'
       's:check login status'
       'python:check Python installation'
+      'profile:view a Scratch profile or browse its public lists'
       'search:search Scratch projects'
       'user:show Scratch user information'
       'u:show Scratch user information'
@@ -24,8 +29,31 @@ _scc() {
   fi
 
   case "$words[2]" in
+    explore)
+      if (( CURRENT == 3 )); then
+        compadd project studio
+      fi
+      _arguments '--mode[ranking to show]:mode:(trending popular)' \
+        '--category[project category]:category:(all animations art games music)' \
+        '--limit[maximum number of results]:limit:' \
+        '--offset[number of results to skip]:offset:'
+      ;;
     login)
       _arguments '--username[Scratch username]:username:'
+      ;;
+    notifications|messages)
+      _arguments '--limit[maximum number of notifications]:limit:' \
+        '--offset[number of notifications to skip]:offset:'
+      ;;
+    profile)
+      if (( CURRENT == 3 || CURRENT == 4 )); then
+        compadd about projects favorites studios followed-studios following followers comments
+      fi
+      _arguments '(-u --user)'{-u,--user}'[Scratch username]:username:' \
+        '--list[list available profile sections]' \
+        '--limit[maximum number of results]:limit:' \
+        '--offset[number of results to skip]:offset:' \
+        '--page[comment page number]:page:'
       ;;
     search)
       if (( CURRENT == 3 )); then
