@@ -69,14 +69,14 @@ class ExploreTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_trending_projects_use_one_request(self):
         code, response = await self.run_main(
-            "project", "trending", "all", "10", "0"
+            "project", "trending", "all", "10", "0", "ja"
         )
 
         self.assertEqual(code, 0)
         self.assertEqual(FakeClient.calls, 1)
         self.assertEqual(self.requests[0][0], "project")
         self.assertEqual(self.requests[0][2], {
-            "query": "*", "mode": "trending", "limit": 10, "offset": 0,
+            "query": "*", "mode": "trending", "language": "ja", "limit": 10, "offset": 0,
         })
         self.assertEqual(response["results"][0]["author"], "creator")
 
@@ -86,32 +86,32 @@ class ExploreTests(unittest.IsolatedAsyncioTestCase):
                 self.requests.clear()
                 FakeClient.calls = 0
                 code, _response = await self.run_main(
-                    "project", "popular", category, "5", "20"
+                    "project", "popular", category, "5", "20", "en"
                 )
 
                 self.assertEqual(code, 0)
                 self.assertEqual(FakeClient.calls, 1)
                 self.assertEqual(len(self.requests), 1)
                 self.assertEqual(self.requests[0][2], {
-                    "query": category, "mode": "popular", "limit": 5, "offset": 20,
+                    "query": category, "mode": "popular", "language": "en", "limit": 5, "offset": 20,
                 })
 
     async def test_popular_studios_use_one_request(self):
         code, response = await self.run_main(
-            "studio", "popular", "all", "5", "20"
+            "studio", "popular", "all", "5", "20", "ja"
         )
 
         self.assertEqual(code, 0)
         self.assertEqual(FakeClient.calls, 1)
         self.assertEqual(self.requests[0][0], "studio")
         self.assertEqual(self.requests[0][2], {
-            "mode": "popular", "limit": 5, "offset": 20,
+            "mode": "popular", "language": "ja", "limit": 5, "offset": 20,
         })
         self.assertEqual(response["results"][0]["host_id"], 789)
 
     async def test_invalid_limit_sends_no_request(self):
         code, response = await self.run_main(
-            "project", "trending", "all", "41", "0"
+            "project", "trending", "all", "41", "0", "en"
         )
 
         self.assertEqual(code, 1)
@@ -120,7 +120,7 @@ class ExploreTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_studio_category_sends_no_request(self):
         code, response = await self.run_main(
-            "studio", "popular", "games", "10", "0"
+            "studio", "popular", "games", "10", "0", "en"
         )
 
         self.assertEqual(code, 1)
@@ -136,7 +136,7 @@ class ExploreTests(unittest.IsolatedAsyncioTestCase):
         self.module.scapi.explore_projects = failing_projects
 
         code, response = await self.run_main(
-            "project", "trending", "all", "10", "0"
+            "project", "trending", "all", "10", "0", "en"
         )
 
         self.assertEqual(code, 1)

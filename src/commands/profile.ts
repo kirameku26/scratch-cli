@@ -1,49 +1,28 @@
 import { loadConfig } from "../config.ts";
 import { fail } from "../errors.ts";
 import { getProfileSection, type ProfileSection } from "../python/profile.ts";
+import { pageOffset } from "../pagination.ts";
 
-const sections: readonly ProfileSection[] = [
+export const PROFILE_SECTIONS: readonly ProfileSection[] = [
   "about", "projects", "favorites", "studios", "followed-studios",
   "following", "followers", "comments",
 ];
 
 export type ProfileArguments = {
   section?: string;
-  legacySection?: string;
   user?: string;
-  list?: boolean;
   limit?: number;
   offset?: number;
   page?: number;
 };
 
 export async function profile(argv: ProfileArguments): Promise<void> {
-  if (argv.list) {
-    if (argv.section || argv.legacySection || argv.user
-      || argv.limit !== undefined || argv.offset !== undefined || argv.page !== undefined) {
-      fail("--list cannot be combined with a section or other options.");
-      return;
-    }
-    console.log("Available profile sections:");
-    console.log(sections.join("\n"));
-    return;
-  }
+  const username = argv.user;
+  const section = argv.section ?? "about";
+  let offset = argv.offset ?? 0;
 
-  let username = argv.user;
-  let section = argv.section ?? "about";
-
-  // Keep the former `profile <username> <section>` form working.
-  if (argv.legacySection !== undefined) {
-    if (argv.user) {
-      fail("Specify the user either with --user or in the legacy position, not both.");
-      return;
-    }
-    username = argv.section;
-    section = argv.legacySection;
-  }
-
-  if (!sections.includes(section as ProfileSection)) {
-    fail(`Section must be one of: ${sections.join(", ")}.`);
+  if (!PROFILE_SECTIONS.includes(section as ProfileSection)) {
+    fail(`Section must be one of: ${PROFILE_SECTIONS.join(", ")}.`);
     return;
   }
 
@@ -68,28 +47,17 @@ export async function profile(argv: ProfileArguments): Promise<void> {
       return;
     }
   } else {
-    if (argv.page !== undefined) {
-      fail("--page is available only for comments.");
-      return;
-    }
-    if (argv.limit !== undefined
-      && (!Number.isSafeInteger(argv.limit) || argv.limit < 1 || argv.limit > 40)) {
-      fail("Limit must be an integer between 1 and 40.");
-      return;
-    }
-    if (argv.offset !== undefined
-      && (!Number.isSafeInteger(argv.offset) || argv.offset < 0)) {
-      fail("Offset must be a non-negative integer.");
-      return;
-    }
+    const resolved = pageOffset(argv.limit ?? 10, argv.offset, argv.page);
+    if (resolved === undefined) return;
+    offset = resolved;
   }
 
   let sessionId: string | undefined;
-  if (!username) {
+  if (!username || section === "about") {
     const config = await loadConfig();
     sessionId = config.scratchsessionsid;
-    if (!sessionId) {
-      fail("No active session. Run `scc login` first or specify --user.");
+    if (!username && !sessionId) {
+      fail("No active session. Run `scc login` first or specify a username.");
       return;
     }
   }
@@ -99,7 +67,7 @@ export async function profile(argv: ProfileArguments): Promise<void> {
     sessionId,
     section: section as ProfileSection,
     limit: argv.limit ?? 10,
-    offset: argv.offset ?? 0,
+    offset,
     page: argv.page ?? 1,
   });
 }

@@ -10,6 +10,7 @@ describe("notifications command", () => {
     { args: ["notifications", "--limit", "0"], message: "Limit must be an integer between 1 and 40." },
     { args: ["messages", "--limit", "41"], message: "Limit must be an integer between 1 and 40." },
     { args: ["notifications", "--offset", "-1"], message: "Offset must be a non-negative integer." },
+    { args: ["notifications", "count", "--limit", "2"], message: "Pagination options are available only" },
   ])("rejects invalid pagination before reading the session", ({ args, message }) => {
     const result = Bun.spawnSync([process.execPath, entrypoint, ...args]);
 
@@ -19,7 +20,7 @@ describe("notifications command", () => {
 
   test("reports a missing session without starting Python", () => {
     const configPath = join(tmpdir(), `scc-notifications-test-${crypto.randomUUID()}.json`);
-    const script = `import { getNotifications } from ${JSON.stringify(notificationsModule)}; await getNotifications({ limit: 10, offset: 0 }, ${JSON.stringify(configPath)});`;
+    const script = `import { getNotifications } from ${JSON.stringify(notificationsModule)}; await getNotifications({ action: "list", limit: 10, offset: 0 }, ${JSON.stringify(configPath)});`;
     const result = Bun.spawnSync([process.execPath, "-e", script]);
 
     expect(result.exitCode).toBe(1);

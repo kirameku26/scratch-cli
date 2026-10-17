@@ -4,12 +4,16 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 
 import { commands } from "./src/commands/index.ts";
+import { commandGuide, helpArguments, mainHelp } from "./src/commands/help.ts";
+import { actionHelp, actionHelpTarget } from "./src/commands/action-help.ts";
 
 const packageJson = await Bun.file(
   new URL("./package.json", import.meta.url),
 ).json();
 
-const args = hideBin(process.argv);
+const args = helpArguments(hideBin(process.argv), commands);
+const isMainHelp = args.length === 0 || (args.length === 1 && ["help", "--help", "-h"].includes(args[0]!));
+const actionTarget = actionHelpTarget(args, commands);
 
 function explainMissingPositionals(message: string): string {
   const match = /^Not enough non-option arguments: got (\d+), need at least (\d+)$/.exec(message);
@@ -46,8 +50,13 @@ const cli = yargs(
   .alias("v", "version")
   .help("help", "output usage information")
   .alias("h", "help")
+  .wrap(100)
   .fail((message, error, command) => {
-    command.showHelp("log");
+    if (Object.entries(commands).some(([name, command]) => name === args[0] || command.aliases?.includes(args[0]!))) {
+      command.showHelp("log");
+    } else {
+      console.log(mainHelp(commands));
+    }
     console.log();
     const detail = message || error?.message || "Unknown error";
     console.error(`Error: ${explainMissingPositionals(detail)}`);
@@ -55,11 +64,14 @@ const cli = yargs(
   });
 
 cli.command(
-  "help",
+  "help [command] [action]",
   "output usage information",
-  () => {},
+  (yargs) => yargs.positional("command", {
+    type: "string", description: "command to explain",
+    choices: Object.entries(commands).flatMap(([name, command]) => [name, ...(command.aliases ?? [])]),
+  }).positional("action", { type: "string", description: "action to explain" }),
   () => {
-    cli.showHelp();
+    console.log(mainHelp(commands));
   },
 );
 
@@ -74,6 +86,8 @@ for (const [name, command] of sortedCommands) {
     describe: command.description,
 
     builder: (yargs) => {
+      const guide = commandGuide(name);
+      if (guide) yargs.epilog(guide);
       for (const positional of command.positionals ?? []) {
         yargs.positional(positional.name, {
           type: positional.type,
@@ -101,4 +115,10 @@ for (const [name, command] of sortedCommands) {
   });
 }
 
-await cli.parseAsync();
+if (actionTarget?.error) {
+  console.log(commandGuide(actionTarget.command));
+  console.error(`Error: ${actionTarget.error}`);
+  process.exitCode = 1;
+} else if (actionTarget) console.log(actionHelp(actionTarget, commands));
+else if (isMainHelp) console.log(mainHelp(commands));
+else await cli.parseAsync();

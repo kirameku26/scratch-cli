@@ -20,9 +20,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.11",
     "@scratch/scratch-gui": "^15.2.0",
+    "@scratch/scratch-storage": "15.2.0",
+    "@scratch/scratch-vm": "15.2.0",
+    "jszip": "3.10.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "scratch-sb1-converter": "2.0.280",
     "yargs": "^18.2.0"
   },
   "yargs": {

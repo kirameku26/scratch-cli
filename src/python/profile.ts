@@ -1,5 +1,6 @@
 import { fail } from "../errors.ts";
 import { venvDir } from "./index.ts";
+import { spawnScratchPython } from "./process.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
 const scriptPath = new URL("./profile.py", import.meta.url);
@@ -89,6 +90,7 @@ function validAbout(value: unknown): value is Record<string, unknown> {
     && optionalText(about.status)
     && optionalText(about.icon_url)
     && typeof about.url === "string"
+    && (typeof about.following === "boolean" || about.following === null)
     && validFeaturedProject(about.featured_project)
     && Array.isArray(about.activities)
     && about.activities.every(validActivity);
@@ -156,6 +158,7 @@ function displayAbout(about: Record<string, unknown>): void {
   line("Joined", about.joined_at);
   line("Icon URL", about.icon_url);
   line("URL", about.url);
+  line("Following", about.following === null ? "Unknown" : about.following ? "Yes" : "No");
   console.log("");
   console.log("About me:");
   console.log(typeof about.bio === "string" ? cleanMultiline(about.bio) || "None" : "None");
@@ -247,25 +250,15 @@ export async function getProfileSection({
   username, sessionId, section, limit, offset, page,
 }: ProfileArguments): Promise<void> {
   if (!username && !sessionId) {
-    fail("No active session. Run `scc login` first or specify --user.");
+    fail("No active session. Run `scc login` first or specify a username.");
     return;
   }
 
-  let result: ReturnType<typeof Bun.spawnSync>;
-
-  try {
-    result = Bun.spawnSync([
+  const result = spawnScratchPython([
       pythonPath, scriptPath.pathname, username ?? "", section,
       String(limit), String(offset), String(page),
-    ], {
-      stdin: new Blob([JSON.stringify({ session_id: sessionId ?? null })]),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch {
-    fail("Python environment is not ready. Run `scc python` first.");
-    return;
-  }
+    ], { stdin: new Blob([JSON.stringify({ session_id: sessionId ?? null })]) });
+  if (!result) return;
 
   const stdout = new TextDecoder().decode(result.stdout).trim();
   let response: unknown;

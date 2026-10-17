@@ -41,11 +41,11 @@ def output_error(message: str) -> None:
 
 
 async def main() -> int:
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 7:
         output_error("Invalid explore arguments.")
         return 1
 
-    resource_type, mode, category, raw_limit, raw_offset = sys.argv[1:]
+    resource_type, mode, category, raw_limit, raw_offset, language = sys.argv[1:]
 
     if resource_type not in ("project", "studio"):
         output_error("Explore type must be project or studio.")
@@ -61,6 +61,12 @@ async def main() -> int:
 
     if resource_type == "studio" and category != "all":
         output_error("Category is available only for projects.")
+        return 1
+    if not language or len(language) > 20 or not all(
+        character.isascii() and (character.isalnum() or character == "-")
+        for character in language
+    ):
+        output_error("Invalid language code.")
         return 1
 
     try:
@@ -83,6 +89,7 @@ async def main() -> int:
                         client,
                         query="*" if category == "all" else category,
                         mode=mode,
+                        language=language,
                         limit=limit,
                         offset=offset,
                     )
@@ -91,7 +98,8 @@ async def main() -> int:
                 results = [
                     serialize_studio(studio)
                     async for studio in scapi.explore_studios(
-                        client, mode=mode, limit=limit, offset=offset
+                        client, mode=mode, language=language,
+                        limit=limit, offset=offset
                     )
                 ]
 
@@ -108,4 +116,5 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    from runtime import run
+    sys.exit(run(main))

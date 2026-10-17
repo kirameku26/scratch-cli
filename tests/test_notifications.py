@@ -18,6 +18,9 @@ class FakeSession:
     def __init__(self):
         self.calls = []
 
+    async def get_message_count(self):
+        return 2
+
     async def get_messages(self, **options):
         self.calls.append(options)
         project = types.SimpleNamespace(
@@ -86,18 +89,19 @@ class NotificationsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_lists_notifications_for_the_session_account(self):
         code, response = await self.run_main(
-            "10", "20", payload={"session_id": "private-session"}
+            "list", "10", "20", payload={"session_id": "private-session"}
         )
 
         self.assertEqual(code, 0)
         self.assertEqual(self.session_ids, ["private-session"])
         self.assertEqual(self.session.calls, [{"limit": 10, "offset": 20}])
         self.assertEqual(response["username"], "target_account")
+        self.assertEqual(response["unread_count"], 2)
         self.assertEqual(len(response["notifications"]), 2)
         self.assertEqual(response["notifications"][1]["content"], "Nice project!")
 
     async def test_missing_session_makes_no_request(self):
-        code, response = await self.run_main("10", "0")
+        code, response = await self.run_main("list", "10", "0")
 
         self.assertEqual(code, 1)
         self.assertEqual(response["error"], "A valid Scratch session is required.")
@@ -105,9 +109,51 @@ class NotificationsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_limit_makes_no_request(self):
         code, response = await self.run_main(
-            "41", "0", payload={"session_id": "private-session"}
+            "list", "41", "0", payload={"session_id": "private-session"}
         )
 
         self.assertEqual(code, 1)
         self.assertEqual(response["error"], "Invalid limit or offset.")
         self.assertEqual(self.session_ids, [])
+
+    async def test_default_limit_uses_unread_count(self):
+        code, response = await self.run_main(
+            "list", "", "0", payload={"session_id": "private-session"}
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(self.session.calls, [{"limit": 2, "offset": 0}])
+        self.assertEqual(len(response["notifications"]), 2)
+
+    async def test_count_does_not_load_message_items(self):
+        code, response = await self.run_main(
+            "count", "", "0", payload={"session_id": "private-session"}
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(response["unread_count"], 2)
+        self.assertEqual(self.session.calls, [])
+
+    async def test_page_uses_effective_limit_and_base_offset(self):
+        for limit, expected in (("", 9), ("10", 25)):
+            self.session.calls.clear()
+            code, _ = await self.run_main("list", limit, "5", payload={"session_id": "private-session", "page": 3})
+            self.assertEqual(code, 0)
+            self.assertEqual(self.session.calls, [{"limit": 2 if not limit else 10, "offset": expected}])
+
+    async def test_invalid_page_is_rejected_before_login(self):
+        for page in (0, -1, True, 1.5):
+            code, _ = await self.run_main("list", "10", "0", payload={"session_id": "private-session", "page": page})
+            self.assertEqual(code, 1)
+        self.assertEqual(self.session_ids, [])
+
+    def test_unknown_created_at_is_serialized_as_none(self):
+        activity = types.SimpleNamespace(
+            id=3,
+            action=types.SimpleNamespace(value="project_love"),
+            actor=None,
+            place=None,
+            target=None,
+            created_at=object(),
+        )
+        self.assertIsNone(
+            self.module.serialize_notification(activity)["created_at"]
+        )

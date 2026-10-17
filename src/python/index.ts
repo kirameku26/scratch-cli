@@ -20,13 +20,11 @@ export function findPython(): string | null {
   ];
 
   for (const command of candidates) {
-    const result = Bun.spawnSync([
-      command,
-      "--version",
-    ]);
-
-    if (result.exitCode === 0) {
-      return command;
+    try {
+      const result = Bun.spawnSync([command, "--version"], { timeout: 15_000 });
+      if (result.exitCode === 0) return command;
+    } catch {
+      // A missing executable must not prevent checking the next candidate.
     }
   }
 

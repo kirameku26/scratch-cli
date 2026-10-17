@@ -1,9 +1,15 @@
 import { loadConfig } from "../config";
 import { fail } from "../errors.ts";
+import { checkSession, type ScratchFetch } from "../scratch-session.ts";
 
 export async function session() {
-  const config =
-    await loadConfig();
+  await sessionWithDependencies({ loadConfig, fetch, fail });
+}
+
+export async function sessionWithDependencies(dependencies: {
+  loadConfig: typeof loadConfig; fetch: ScratchFetch; fail: typeof fail;
+}) {
+  const config = await dependencies.loadConfig();
 
   if (!config.scratchsessionsid) {
     console.log(
@@ -16,62 +22,10 @@ export async function session() {
     "Checking authentication...",
   );
 
-  try {
-    const res = await fetch(
-      "https://scratch.mit.edu/session/",
-      {
-        method: "GET",
-
-        headers: {
-          "scratchsessionsid":
-            config.scratchsessionsid,
-
-          "X-Requested-With":
-            "XMLHttpRequest",
-
-          "Referer":
-            "https://scratch.mit.edu/",
-
-          "Cookie": [
-            `scratchsessionsid=${config.scratchsessionsid}`,
-
-            config.scratchcsrftoken
-              ? `scratchcsrftoken=${config.scratchcsrftoken}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("; "),
-        },
-      },
-    );
-
-    if (!res.ok) {
-      fail(
-        `Failed to check status: ${res.status}`,
-      );
-      return;
-    }
-
-    const result: unknown =
-      await res.json();
-
-    const user = result
-      && typeof result === "object"
-      && "user" in result
-      && result.user
-      && typeof result.user === "object"
-      ? result.user as { username?: unknown }
-      : undefined;
-
-    if (user) {
-      console.log("Logged in.");
-      console.log(
-        `Username: ${typeof user.username === "string" ? user.username : "Unknown"}`,
-      );
-    } else {
-      console.log("Not logged in.");
-    }
-  } catch {
-    fail("Failed to check status because Scratch could not be reached.");
-  }
+  const status = await checkSession(config, dependencies.fetch);
+  if (status.state === "error") dependencies.fail(status.message);
+  else if (status.state === "authenticated") {
+    console.log("Logged in.");
+    console.log(`Username: ${status.username}`);
+  } else console.log("Not logged in.");
 }

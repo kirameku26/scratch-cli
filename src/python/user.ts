@@ -1,9 +1,16 @@
 import { loadConfig } from "../config.ts";
 import { venvDir } from "./index.ts";
 import { fail } from "../errors.ts";
+import { spawnScratchPython } from "./process.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
 const scriptPath = new URL("../python/user.py", import.meta.url);
+
+function cleanText(value: unknown): string | null {
+  return typeof value === "string"
+    ? value.replace(/[\x00-\x1f\x7f-\x9f]/g, " ").replace(/\s+/g, " ").trim()
+    : null;
+}
 
 export function buildUserProcess(
   sessionId: string,
@@ -32,11 +39,12 @@ export async function getUser(
   argv: {
     user?: string;
   } = {},
+  configPath?: string,
 ) {
-  const config = await loadConfig();
+  const config = await loadConfig(configPath);
 
   if (!config.scratchsessionsid) {
-    fail("No active session.");
+    fail("No active session. Run `scc login` first.");
     return;
   }
 
@@ -45,18 +53,11 @@ export async function getUser(
     argv.user,
   );
 
-  const result = Bun.spawnSync(processInput.args, {
-    stdin: processInput.stdin,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const result = spawnScratchPython(processInput.args, { stdin: processInput.stdin });
+  if (!result) return;
 
   const stdout = new TextDecoder()
     .decode(result.stdout)
-    .trim();
-
-  const stderr = new TextDecoder()
-    .decode(result.stderr)
     .trim();
 
   if (result.exitCode !== 0) {
@@ -64,7 +65,7 @@ export async function getUser(
       try {
         const error = JSON.parse(stdout);
 
-        if (error.error) {
+        if (error && typeof error === "object" && typeof error.error === "string") {
           fail(error.error);
           return;
         }
@@ -73,11 +74,7 @@ export async function getUser(
       }
     }
 
-    if (stderr) {
-      fail(stderr);
-    } else {
-      fail("Failed to get user information.");
-    }
+    fail("Failed to get user information. Check the network and Python setup.");
 
     return;
   }
@@ -124,8 +121,32 @@ export async function getUser(
         }
       }
     }
+
+    console.log(`Following: ${user.following === true ? "Yes" : user.following === false ? "No" : "Unknown"}`);
+
+    console.log("");
+    const featured = user.featured_project;
+    console.log(`${cleanText(featured?.label) || "Featured Project"}:`);
+    if (featured && typeof featured === "object") {
+      console.log(cleanText(featured.title) || `Project #${featured.id}`);
+      console.log(`URL: ${cleanText(featured.url) ?? "None"}`);
+    } else {
+      console.log("None");
+    }
+
+    console.log("");
+    console.log("Recent activity:");
+    const activities = Array.isArray(user.activities) ? user.activities : [];
+    if (activities.length === 0) {
+      console.log("No recent activity found.");
+    }
+    for (const activity of activities) {
+      console.log(`${activity.actor ?? user.username} ${String(activity.action ?? "activity").replace(/_/g, " ")}`);
+      if (activity.target_title) console.log(`   About: ${activity.target_title}`);
+      if (activity.when) console.log(`   When: ${activity.when}`);
+      if (activity.target_url) console.log(`   URL: ${activity.target_url}`);
+    }
   } catch {
     fail("Failed to parse Scapi response.");
-    console.error(stdout);
   }
 }

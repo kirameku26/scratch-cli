@@ -1,4 +1,5 @@
 import { venvDir } from "./index.ts";
+import { confirmAction } from "../confirmation.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
 
@@ -7,7 +8,7 @@ export async function getScapiVersion(): Promise<string | null> {
     pythonPath,
     "-c",
     "import scapi; print(getattr(scapi, '__version__', 'unknown'))",
-  ]);
+  ], { timeout: 15_000 });
 
   if (result.exitCode !== 0) {
     return null;
@@ -30,7 +31,7 @@ async function getLatestScapiVersion(): Promise<string | null> {
     "index",
     "versions",
     "scapi",
-  ]);
+  ], { timeout: 30_000 });
 
   if (result.exitCode !== 0) {
     return null;
@@ -47,6 +48,7 @@ async function getLatestScapiVersion(): Promise<string | null> {
 }
 
 export async function installScapi(): Promise<boolean> {
+  if (!await confirmAction(`Python environment: ${venvDir}\nAction: install Scapi and its dependencies in this environment`)) return false;
   console.log("Installing Scapi...");
 
   const result = Bun.spawnSync([
@@ -56,6 +58,7 @@ export async function installScapi(): Promise<boolean> {
     "install",
     "scapi",
   ], {
+    timeout: 120_000,
     stdout: "inherit",
     stderr: "inherit",
   });
@@ -64,6 +67,7 @@ export async function installScapi(): Promise<boolean> {
 }
 
 export async function updateScapi(): Promise<boolean> {
+  if (!await confirmAction(`Python environment: ${venvDir}\nAction: upgrade Scapi and its dependencies in this environment`)) return false;
   console.log("Updating Scapi...");
 
   const result = Bun.spawnSync([
@@ -74,6 +78,7 @@ export async function updateScapi(): Promise<boolean> {
     "--upgrade",
     "scapi",
   ], {
+    timeout: 120_000,
     stdout: "inherit",
     stderr: "inherit",
   });

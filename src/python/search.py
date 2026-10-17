@@ -27,6 +27,14 @@ def serialize_project(project: Any) -> dict[str, Any]:
     }
 
 
+def serialize_studio(studio: Any) -> dict[str, Any]:
+    return {
+        "id": json_value(getattr(studio, "id", None)),
+        "title": json_value(getattr(studio, "title", None)),
+        "url": json_value(getattr(studio, "url", None)),
+    }
+
+
 def output_error(message: str, error_type: str | None = None) -> None:
     payload = {"error": message}
 
@@ -37,14 +45,24 @@ def output_error(message: str, error_type: str | None = None) -> None:
 
 
 async def main() -> int:
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 7:
         output_error("Invalid project search arguments.")
         return 1
 
-    resource_type, query, raw_limit, raw_offset = sys.argv[1:]
+    resource_type, query, mode, raw_limit, raw_offset, language = sys.argv[1:]
 
-    if resource_type != "project":
+    if resource_type not in ("project", "studio"):
         output_error(f"Unsupported search type: {resource_type}")
+        return 1
+
+    if mode not in ("trending", "popular"):
+        output_error("Mode must be trending or popular.")
+        return 1
+    if not language or len(language) > 20 or not all(
+        character.isascii() and (character.isalnum() or character == "-")
+        for character in language
+    ):
+        output_error("Invalid language code.")
         return 1
 
     try:
@@ -60,19 +78,28 @@ async def main() -> int:
 
     try:
         async with scapi.HTTPClient() as client:
-            projects = [
-                serialize_project(project)
-                async for project in scapi.search_projects(
-                    client,
-                    query,
-                    limit=limit,
-                    offset=offset,
-                )
-            ]
+            if resource_type == "project":
+                projects = [
+                    serialize_project(project)
+                    async for project in scapi.search_projects(
+                        client, query, mode=mode, language=language,
+                        limit=limit, offset=offset,
+                    )
+                ]
+            else:
+                projects = [
+                    serialize_studio(studio)
+                    async for studio in scapi.search_studios(
+                        client, query, mode=mode, language=language,
+                        limit=limit, offset=offset,
+                    )
+                ]
 
         print(json.dumps({
-            "type": "project",
+            "type": resource_type,
             "query": query,
+            "mode": mode,
+            "language": language,
             "results": projects,
         }, ensure_ascii=False))
 
@@ -84,4 +111,5 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    from runtime import run
+    sys.exit(run(main))

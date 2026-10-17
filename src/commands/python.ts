@@ -18,7 +18,7 @@ export async function python() {
   const result = Bun.spawnSync([
     command,
     "--version",
-  ]);
+  ], { timeout: 15_000 });
 
   const version =
     new TextDecoder()

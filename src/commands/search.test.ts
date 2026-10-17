@@ -10,7 +10,7 @@ describe("search command validation", () => {
   test.each([
     {
       args: ["search"],
-      message: 'Error: Missing required arguments: <type> (choose "project"), <query> (search query).',
+      message: 'Error: Missing required arguments: <type> (choose "project" or "studio"), <query> (search query).',
     },
     {
       args: ["search", "project"],
@@ -47,6 +47,14 @@ describe("search command validation", () => {
       args: ["search", "project", "cat", "--offset", "-1"],
       message: "Offset must be a non-negative integer.",
     },
+    {
+      args: ["search", "project", "cat", "--mode", "newest"],
+      message: 'Invalid values:\n  Argument: mode, Given: "newest", Choices: "trending", "popular"',
+    },
+    {
+      args: ["search", "project", "cat", "--language", "../ja"],
+      message: "Language must be a valid language code",
+    },
   ])("rejects invalid arguments without starting a search", async ({ args, message }) => {
     const result = Bun.spawnSync([
       process.execPath,
@@ -57,5 +65,22 @@ describe("search command validation", () => {
 
     expect(result.exitCode).toBe(1);
     expect(stderr).toContain(message);
+  });
+
+  test("documents trending and popular search modes", () => {
+    const result = Bun.spawnSync([
+      process.execPath,
+      entrypoint,
+      "search",
+      "--help",
+    ]);
+    const stdout = new TextDecoder().decode(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toContain("--mode");
+    expect(stdout).toContain('choices: "trending", "popular"');
+    expect(stdout).toContain('default: "trending"');
+    expect(stdout).toContain("--language");
+    expect(stdout).toContain('choices: "project", "studio"');
   });
 });

@@ -8,6 +8,7 @@ from urllib.parse import quote, urljoin, urlsplit
 from bs4 import BeautifulSoup
 import scapi
 from scapi.utils.error import NotFound, TooManyRequests, Unauthorized
+from following import self_following_status
 
 
 SECTIONS = (
@@ -104,29 +105,67 @@ def scratch_url(href):
     ) else None
 
 
-FEATURED_LABELS = {
-    "ProjectFeatured": "Featured Project",
-    "Tutorial": "Tutorial",
-    "WorkInProgress": "Work in Progress",
-    "RemixThis": "Remix This",
-    "MyFavoriteThings": "My Favorite Things",
-    "WhyIScratch": "Why I Scratch",
+def serialize_featured(data):
+    if not isinstance(data, dict):
+        raise InvalidProfileResponse()
+    project = data.get("featured_project_data")
+    if project is None:
+        return None
+    if not isinstance(project, dict):
+        raise InvalidProfileResponse()
+    raw_id = project.get("id")
+    if isinstance(raw_id, bool) or not str(raw_id).isdecimal() or int(raw_id) < 1:
+        raise InvalidProfileResponse()
+    project_id = int(raw_id)
+    raw_label = data.get("featured_project_label_name")
+    label_id = data.get("featured_project_label_id")
+    fallback = {
+        0: "Tutorial", 1: "Work in Progress", 2: "Remix This",
+        3: "My Favorite Things", 4: "Why I Scratch",
+    }
+    label = raw_label.strip() if isinstance(raw_label, str) else ""
+    return {
+        "id": project_id,
+        "title": text_or_none(project.get("title")),
+        "url": f"https://scratch.mit.edu/projects/{project_id}/",
+        "label": label or fallback.get(label_id, "Featured Project"),
+    }
+
+
+def following_from_page(soup):
+    button = soup.select_one("#follow-button [data-control]")
+    if button is None:
+        return None
+    control = button.get("data-control")
+    if control == "unfollow":
+        return True
+    if control == "follow":
+        return False
+    return None
+
+
+ACTIVITY_ACTIONS = {
+    "project_share": "project",
+    "project_love": "love",
+    "project_favorite": "favorite",
+    "project_remix": "remix",
+    "studio_follow": "studio",
+    "user_follow": "follow",
+    "comment": "comment",
 }
 
 
-def serialize_featured(featured):
-    if featured is None:
-        return None
-    project = featured.project
-    project_id = getattr(project, "id", None)
-    if not isinstance(project_id, int) or isinstance(project_id, bool):
-        raise InvalidProfileResponse()
-    label_name = getattr(getattr(featured, "label", None), "name", None)
+def serialize_activity(activity):
+    target = getattr(activity, "target", None) or getattr(activity, "place", None)
+    actor = getattr(activity, "actor", None)
+    action = getattr(getattr(activity, "action", None), "value", None)
     return {
-        "id": project_id,
-        "title": text_or_none(getattr(project, "title", None)),
-        "url": f"https://scratch.mit.edu/projects/{project_id}/",
-        "label": FEATURED_LABELS.get(label_name, "Featured Project"),
+        "action": ACTIVITY_ACTIONS.get(action, "activity"),
+        "actor": text_or_none(getattr(actor, "username", None)),
+        "target_title": text_or_none(getattr(target, "title", None))
+        or text_or_none(getattr(target, "username", None)),
+        "target_url": scratch_url(getattr(target, "url", None)),
+        "when": text_or_none(getattr(activity, "other", None)),
     }
 
 
@@ -148,37 +187,18 @@ def parse_profile_page(html, username):
     icon_url = scratch_url(portrait.get("src")) if portrait else None
     user_id_match = USER_IMAGE_PATH.search(icon_url or "")
 
-    activities = []
-    for item in box.select("#activity-feed .activity-stream > li")[:10]:
-        icon = item.select_one(".icon-xs")
-        classes = icon.get("class", []) if icon else []
-        action = next((name for name in (
-            "project", "love", "favorite", "remix", "studio", "follow", "comment"
-        ) if name in classes), "activity")
-        actor = profile_text(item.select_one(".actor"))
-        target_link = item.select_one('a[data-tag="object"]') or item.select_one("a[href]")
-        target_title = profile_text(target_link) if target_link else None
-        target_url = scratch_url(target_link.get("href")) if target_link else None
-        when = profile_text(item.select_one('[data-tag="time"]'))
-        activities.append({
-            "action": action,
-            "actor": actor,
-            "target_title": target_title,
-            "target_url": target_url,
-            "when": when,
-        })
-
     return {
         "id": int(user_id_match.group(1)) if user_id_match else None,
         "username": displayed_name,
         "role": role,
         "country": country,
         "joined_at": text_or_none(joined.get("title")) if joined else None,
-        "bio": profile_text(box.select_one("#bio-readonly .overview")),
-        "status": profile_text(box.select_one("#status-readonly .overview")),
+        "bio": profile_text(box.select_one("#bio-readonly .overview")
+                            or box.select_one('#bio textarea[name="bio"]')),
+        "status": profile_text(box.select_one("#status-readonly .overview")
+                               or box.select_one('#status textarea[name="status"]')),
         "icon_url": icon_url,
         "url": f"https://scratch.mit.edu/users/{quote(username)}/",
-        "activities": activities,
     }
 
 
@@ -224,11 +244,26 @@ def serialize_api_item(item, section):
     }
 
 
-async def fetch_about(client, username):
+async def fetch_about(client, username, viewer=None):
     response = await client.get(f"https://scratch.mit.edu/users/{quote(username)}/")
     about = parse_profile_page(response.text, username)
+    if not viewer:
+        about["following"] = None
+    else:
+        about["following"] = following_from_page(
+            BeautifulSoup(response.text, "html.parser")
+        )
     user = scapi.User(username, client, is_real=True)
-    about["featured_project"] = serialize_featured(await user.get_featured())
+    if about["following"] is None and viewer and viewer.lower() == username.lower():
+        about["following"] = await self_following_status(user)
+    featured_response = await client.get(
+        f"https://scratch.mit.edu/site-api/users/all/{quote(username)}/"
+    )
+    about["featured_project"] = serialize_featured(featured_response.json())
+    about["activities"] = [
+        serialize_activity(activity)
+        async for activity in user.get_activities(10)
+    ]
     return about
 
 
@@ -267,10 +302,10 @@ async def fetch_items(client, username, section, limit, offset, page):
     return [serialize_api_item(item, section) for item in data]
 
 
-async def fetch_profile(client, username, section, limit, offset, page):
+async def fetch_profile(client, username, section, limit, offset, page, viewer=None):
     if section == "about":
         return {"username": username, "section": section,
-                "about": await fetch_about(client, username)}
+                "about": await fetch_about(client, username, viewer)}
     return {"username": username, "section": section,
             "items": await fetch_items(client, username, section, limit, offset, page)}
 
@@ -300,18 +335,34 @@ async def main():
         output_error("Invalid pagination values.")
         return 1
     if not username and (not isinstance(session_id, str) or not session_id):
-        output_error("No active session. Run `scc login` first or specify --user.")
+        output_error("No active session. Run `scc login` first or specify a username.")
         return 1
 
     using_session = not username
     try:
         if username:
-            async with scapi.HTTPClient() as client:
-                result = await fetch_profile(client, username, section, limit, offset, page)
+            if section == "about" and isinstance(session_id, str) and session_id:
+                try:
+                    async with scapi.session_login(session_id) as session:
+                        result = await fetch_profile(
+                            session.client, username, section, limit, offset, page,
+                            viewer=session.username,
+                        )
+                except (Unauthorized, ValueError):
+                    async with scapi.HTTPClient() as client:
+                        result = await fetch_profile(
+                            client, username, section, limit, offset, page
+                        )
+            else:
+                async with scapi.HTTPClient() as client:
+                    result = await fetch_profile(client, username, section, limit, offset, page)
         else:
             async with scapi.session_login(session_id) as session:
                 username = session.username
-                result = await fetch_profile(session.client, username, section, limit, offset, page)
+                result = await fetch_profile(
+                    session.client, username, section, limit, offset, page,
+                    viewer=session.username,
+                )
         print(json.dumps(result, ensure_ascii=False))
     except NotFound:
         output_error("Scratch user or profile page not found.")
@@ -342,4 +393,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    from runtime import run
+    sys.exit(run(main))

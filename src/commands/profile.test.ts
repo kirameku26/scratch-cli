@@ -2,19 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 const entrypoint = new URL("../../index.ts", import.meta.url).pathname;
 
-describe("profile command", () => {
+describe("user profile sections", () => {
   test.each([
-    { args: ["profile", "unknown"], message: "Section must be one of:" },
-    { args: ["profile", "griffpatch", "unknown"], message: "Section must be one of:" },
-    { args: ["profile", "projects", "--user", "griffpatch", "--limit", "41"], message: "Limit must be an integer between 1 and 40." },
-    { args: ["profile", "griffpatch", "projects", "--limit", "0"], message: "Limit must be an integer between 1 and 40." },
-    { args: ["profile", "followers", "--user", "griffpatch", "--offset", "-1"], message: "Offset must be a non-negative integer." },
-    { args: ["profile", "comments", "--user", "griffpatch", "--page", "0"], message: "Page must be a positive integer." },
-    { args: ["profile", "comments", "--user", "griffpatch", "--limit", "10"], message: "Use --page for comments" },
-    { args: ["profile", "projects", "--user", "griffpatch", "--page", "2"], message: "--page is available only for comments." },
-    { args: ["profile", "about", "--user", "griffpatch", "--limit", "2"], message: "Pagination options are not available" },
-    { args: ["profile", "projects", "--user", "../other"], message: "Username may contain only" },
-    { args: ["profile", "griffpatch", "projects", "--user", "other"], message: "Specify the user either" },
+    { args: ["user", "griffpatch", "--section", "unknown"], message: "Invalid values:" },
+    { args: ["user", "griffpatch", "--section", "projects", "--limit", "41"], message: "Limit must be an integer between 1 and 40." },
+    { args: ["user", "griffpatch", "--section", "projects", "--limit", "0"], message: "Limit must be an integer between 1 and 40." },
+    { args: ["user", "griffpatch", "--section", "followers", "--offset", "-1"], message: "Offset must be a non-negative integer." },
+    { args: ["user", "griffpatch", "--section", "comments", "--page", "0"], message: "Page must be a positive integer." },
+    { args: ["user", "griffpatch", "--section", "comments", "--limit", "10"], message: "Use --page for comments" },
+    { args: ["user", "griffpatch", "--section", "projects", "--page", "0"], message: "Page must be a positive integer." },
+    { args: ["user", "griffpatch", "--section", "about", "--limit", "2"], message: "Pagination options are not available" },
+    { args: ["user", "../other", "--section", "projects"], message: "Username may contain only" },
   ])("rejects invalid arguments before a network request", ({ args, message }) => {
     const result = Bun.spawnSync([process.execPath, entrypoint, ...args]);
 
@@ -23,7 +21,7 @@ describe("profile command", () => {
   });
 
   test("lists sections without loading a profile", () => {
-    const result = Bun.spawnSync([process.execPath, entrypoint, "profile", "--list"]);
+    const result = Bun.spawnSync([process.execPath, entrypoint, "user", "--list"]);
     const stdout = new TextDecoder().decode(result.stdout);
 
     expect(result.exitCode).toBe(0);
@@ -35,12 +33,19 @@ describe("profile command", () => {
     }
   });
 
-  test("documents the username option and the active-account default", () => {
-    const result = Bun.spawnSync([process.execPath, entrypoint, "profile", "--help"]);
+  test("documents sections, the username argument, and the active-account default", () => {
+    const result = Bun.spawnSync([process.execPath, entrypoint, "user", "--help"]);
     const stdout = new TextDecoder().decode(result.stdout);
 
     expect(result.exitCode).toBe(0);
-    expect(stdout).toContain("--user");
+    for (const section of [
+      "about", "projects", "favorites", "studios", "followed-studios",
+      "following", "followers", "comments",
+    ]) {
+      expect(stdout).toContain(section);
+    }
+    expect(stdout).toContain("[username]");
+    expect(stdout).not.toContain("--user");
     expect(stdout).toContain("default: logged-in account");
   });
 });

@@ -32,6 +32,10 @@ describe("explore command validation", () => {
       args: ["explore", "studio", "--offset", "-1"],
       message: "Offset must be a non-negative integer.",
     },
+    {
+      args: ["explore", "project", "--language", "../ja"],
+      message: "Language must be a valid language code",
+    },
   ])("rejects invalid arguments without a network request", ({ args, message }) => {
     const result = Bun.spawnSync([process.execPath, entrypoint, ...args]);
     const stderr = new TextDecoder().decode(result.stderr);
@@ -55,5 +59,6 @@ describe("explore command validation", () => {
     expect(stdout).toContain('default: "trending"');
     expect(stdout).toContain('choices: "all", "animations", "art", "games", "music"');
     expect(stdout).toMatch(/default:\s*"all"/);
+    expect(stdout).toContain("--language");
   });
 });

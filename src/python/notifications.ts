@@ -1,6 +1,7 @@
 import { loadConfig } from "../config.ts";
 import { fail } from "../errors.ts";
 import { venvDir } from "./index.ts";
+import { spawnScratchPython } from "./process.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
 const scriptPath = new URL("./notifications.py", import.meta.url);
@@ -17,12 +18,16 @@ type Notification = {
 
 type NotificationsResponse = {
   username: string;
+  action: "list" | "count";
+  unread_count: number;
   notifications: Notification[];
 };
 
 type Pagination = {
-  limit: number;
+  action: "list" | "count";
+  limit?: number;
   offset: number;
+  page?: number;
 };
 
 const actionLabels: Record<string, string> = {
@@ -54,6 +59,10 @@ function isNotificationsResponse(value: unknown): value is NotificationsResponse
 
   return typeof response.username === "string"
     && response.username.length > 0
+    && (response.action === "list" || response.action === "count")
+    && typeof response.unread_count === "number"
+    && Number.isSafeInteger(response.unread_count)
+    && response.unread_count >= 0
     && Array.isArray(response.notifications)
     && response.notifications.every((item: unknown) => {
       if (!item || typeof item !== "object") {
@@ -75,7 +84,7 @@ function isNotificationsResponse(value: unknown): value is NotificationsResponse
 }
 
 export async function getNotifications(
-  { limit, offset }: Pagination,
+  { action, limit, offset, page }: Pagination,
   configPath?: string,
 ): Promise<void> {
   const config = await loadConfig(configPath);
@@ -85,23 +94,14 @@ export async function getNotifications(
     return;
   }
 
-  let result: ReturnType<typeof Bun.spawnSync>;
-
-  try {
-    result = Bun.spawnSync([
+  const result = spawnScratchPython([
       pythonPath,
       scriptPath.pathname,
-      String(limit),
+      action,
+      limit === undefined ? "" : String(limit),
       String(offset),
-    ], {
-      stdin: new Blob([JSON.stringify({ session_id: config.scratchsessionsid })]),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch {
-    fail("Python environment is not ready. Run `scc python` first.");
-    return;
-  }
+    ], { stdin: new Blob([JSON.stringify({ session_id: config.scratchsessionsid, page })]) });
+  if (!result) return;
 
   const stdout = new TextDecoder().decode(result.stdout).trim();
 
@@ -137,6 +137,9 @@ export async function getNotifications(
   }
 
   const username = cleanText(response.username);
+
+  console.log(`Unread messages for ${username}: ${response.unread_count}`);
+  if (response.action === "count") return;
 
   if (response.notifications.length === 0) {
     console.log(`No notifications found for ${username}.`);

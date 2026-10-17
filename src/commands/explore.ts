@@ -1,5 +1,6 @@
 import { fail } from "../errors.ts";
 import { explore } from "../python/explore.ts";
+import { pageOffset } from "../pagination.ts";
 
 export type ExploreArguments = {
   type: "project" | "studio";
@@ -7,6 +8,8 @@ export type ExploreArguments = {
   category: "all" | "animations" | "art" | "games" | "music";
   limit: number;
   offset: number;
+  page?: number;
+  language: string;
 };
 
 export async function exploreCommand(argv: ExploreArguments): Promise<void> {
@@ -30,15 +33,13 @@ export async function exploreCommand(argv: ExploreArguments): Promise<void> {
     return;
   }
 
-  if (!Number.isInteger(argv.limit) || argv.limit < 1 || argv.limit > 40) {
-    fail("Limit must be an integer between 1 and 40.");
+  const offset = pageOffset(argv.limit, argv.offset, argv.page);
+  if (offset === undefined) return;
+  argv.language = argv.language.trim().toLowerCase();
+  if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/.test(argv.language)) {
+    fail("Language must be a valid language code such as en or ja.");
     return;
   }
 
-  if (!Number.isInteger(argv.offset) || argv.offset < 0) {
-    fail("Offset must be a non-negative integer.");
-    return;
-  }
-
-  await explore(argv);
+  await explore({ ...argv, offset });
 }

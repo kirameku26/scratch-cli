@@ -27,6 +27,15 @@ class FakeClient:
         self.owner.requests.append((url, options))
         if self.owner.fail_request:
             raise self.owner.fail_request()
+        if url.endswith("/site-api/users/all/griffpatch/"):
+            data = {
+                "featured_project_data": None if self.owner.featured_missing else {
+                    "id": "4242", "title": "Scapi project",
+                },
+                "featured_project_label_name": self.owner.featured_label,
+                "featured_project_label_id": None,
+            }
+            return types.SimpleNamespace(json=lambda: data)
         if url.endswith("/studios_following/"):
             return types.SimpleNamespace(text="""
                 <a href="/studios/123/"><img src="thumbnail.png"></a>
@@ -36,6 +45,24 @@ class FakeClient:
                 <a href="https://example.com/studios/999/">Ignore</a>
             """)
         if url.endswith("/users/griffpatch/"):
+            if self.owner.owner_html:
+                follow_button = (
+                    f'<div id="follow-button"><a data-control="{self.owner.follow_control}">Button</a></div>'
+                    if self.owner.follow_control else ""
+                )
+                return types.SimpleNamespace(text=f"""
+                    <div id="profile-data">
+                      <div class="header-text"><h2>griffpatch</h2></div>
+                  {follow_button}
+                      <div id="bio" class="editable read"><form>
+                        <textarea name="bio">My own bio\nSecond line</textarea>
+                      </form></div>
+                      <div id="status" class="editable read"><form>
+                        <textarea name="status">Working on a game</textarea>
+                      </form></div>
+                      <div id="activity-feed"></div>
+                    </div>
+                """)
             return types.SimpleNamespace(text="""
                 <div id="profile-data">
                   <form id="profile-avatar"><a href="/users/griffpatch/">
@@ -89,16 +116,29 @@ class FakeUser:
         self.client = client
         self.is_real = is_real
 
-    async def get_featured(self):
+    async def get_activities(self, limit):
         self.client.owner.requests.append((
-            f"https://scratch.mit.edu/site-api/users/all/{self.username}/", {}
+            "https://scratch.mit.edu/messages/ajax/user-activity/",
+            {"params": {"user": self.username, "max": limit}},
         ))
-        if self.client.owner.featured_missing:
-            return None
-        return types.SimpleNamespace(
-            project=types.SimpleNamespace(id=4242, title="Scapi project"),
-            label=types.SimpleNamespace(name=self.client.owner.featured_label),
-        )
+        for action, title, project_id in (
+            ("project_share", "Scapi activity", 500),
+            ("project_love", "Loved project", 501),
+        ):
+            yield types.SimpleNamespace(
+                action=types.SimpleNamespace(value=action),
+                actor=types.SimpleNamespace(username=self.username),
+                target=types.SimpleNamespace(
+                    title=title,
+                    url=f"https://scratch.mit.edu/projects/{project_id}/",
+                ),
+                other="2 months ago",
+            )
+
+    async def get_followings(self, *, limit, offset):
+        self.client.owner.requests.append(("self-followings", {"limit": limit, "offset": offset}))
+        for username in self.client.owner.following_names:
+            yield types.SimpleNamespace(username=username)
 
     async def get_comments(self, start_page, end_page):
         self.client.owner.requests.append(("comments", (start_page, end_page)))
@@ -109,7 +149,7 @@ class FakeLogin:
     def __init__(self, owner, session_id):
         owner.session_ids.append(session_id)
         self.session = types.SimpleNamespace(
-            username="griffpatch", client=FakeClient(owner),
+            username=owner.viewer_username, client=FakeClient(owner),
         )
 
     async def __aenter__(self):
@@ -125,7 +165,11 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
         self.session_ids = []
         self.fail_request = None
         self.featured_missing = False
-        self.featured_label = "ProjectFeatured"
+        self.featured_label = "Featured Project"
+        self.viewer_username = "griffpatch"
+        self.owner_html = False
+        self.follow_control = "unfollow"
+        self.following_names = [f"other_{index}" for index in range(40)]
         reply = types.SimpleNamespace(
             id=301, author=types.SimpleNamespace(username="replier"),
             content="Reply", created_at=datetime.datetime(2026, 1, 2),
@@ -150,7 +194,7 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
         fake_errors.TooManyRequests = type("TooManyRequests", (Exception,), {})
         fake_errors.Unauthorized = type("Unauthorized", (Exception,), {})
 
-        with patch.dict(sys.modules, {
+        with patch.object(sys, "path", [str(SCRIPT.parent), *sys.path]), patch.dict(sys.modules, {
             "scapi": fake_scapi,
             "scapi.utils": types.ModuleType("scapi.utils"),
             "scapi.utils.error": fake_errors,
@@ -202,17 +246,22 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
             "griffpatch", "about", "10", "0", "1"
         )
         self.assertEqual(code, 0)
-        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(len(self.requests), 3)
         about = response["about"]
         self.assertEqual(self.requests[0][0], "https://scratch.mit.edu/users/griffpatch/")
         self.assertEqual(self.requests[1][0],
                          "https://scratch.mit.edu/site-api/users/all/griffpatch/")
+        self.assertEqual(self.requests[2], (
+            "https://scratch.mit.edu/messages/ajax/user-activity/",
+            {"params": {"user": "griffpatch", "max": 10}},
+        ))
         self.assertEqual(about["id"], 1882674)
         self.assertEqual(about["role"], "Scratcher")
         self.assertEqual(about["joined_at"], "2012-10-24")
         self.assertEqual(about["bio"], "About me & coding")
         self.assertEqual(about["status"], "Working on a game\nMe: @other")
         self.assertEqual(about["country"], "United Kingdom")
+        self.assertIsNone(about["following"])
         self.assertEqual(about["featured_project"], {
             "id": 4242, "title": "Scapi project",
             "url": "https://scratch.mit.edu/projects/4242/",
@@ -220,17 +269,84 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual([item["action"] for item in about["activities"]],
                          ["project", "love"])
-        self.assertEqual(about["activities"][0]["target_title"], "FAST EARTH")
+        self.assertEqual(about["activities"][0]["target_title"], "Scapi activity")
         self.assertEqual(about["activities"][1]["target_url"],
-                         "https://scratch.mit.edu/projects/862083370/")
+                         "https://scratch.mit.edu/projects/501/")
 
     async def test_about_accepts_missing_optional_sections(self):
         about = self.module.parse_profile_page(
             '<div id="profile-data"><div class="header-text"><h2>example</h2>'
             '</div></div>', "example"
         )
-        self.assertEqual(about["activities"], [])
         self.assertIsNone(about["bio"])
+
+    async def test_logged_in_profile_reads_editable_fields(self):
+        self.owner_html = True
+        code, response = await self.run_main(
+            "", "about", "10", "0", "1",
+            payload={"session_id": "private-session"},
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(self.session_ids, ["private-session"])
+        self.assertEqual(len(self.requests), 3)
+        self.assertEqual(response["about"]["bio"], "My own bio\nSecond line")
+        self.assertEqual(response["about"]["status"], "Working on a game")
+        self.assertIs(response["about"]["following"], True)
+        self.assertEqual(response["about"]["activities"][0]["target_title"],
+                         "Scapi activity")
+
+    async def test_named_profile_shows_authenticated_follow_state(self):
+        self.owner_html = True
+        self.viewer_username = "viewer"
+        code, response = await self.run_main(
+            "griffpatch", "about", "10", "0", "1",
+            payload={"session_id": "private-session"},
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(response["about"]["following"], True)
+
+    async def test_self_profile_does_not_assume_follow_state_when_control_is_missing(self):
+        self.owner_html = True
+        for control, expected in (("follow", False), (None, None), ("unexpected", None)):
+            with self.subTest(control=control):
+                self.requests.clear()
+                self.follow_control = control
+                code, response = await self.run_main(
+                    "griffpatch", "about", "10", "0", "1",
+                    payload={"session_id": "private-session"},
+                )
+                self.assertEqual(code, 0)
+                self.assertIs(response["about"]["following"], expected)
+                self.assertEqual(len(self.requests), 3 if control == "follow" else 4)
+
+    async def test_self_without_follow_button_checks_one_following_page(self):
+        self.owner_html = True
+        self.follow_control = None
+        for names, expected in ((["other", "GrIfFpAtCh"], True), ([], False)):
+            with self.subTest(names=names):
+                self.following_names = names
+                self.requests.clear()
+                code, response = await self.run_main(
+                    "", "about", "10", "0", "1",
+                    payload={"session_id": "private-session"},
+                )
+                self.assertEqual(code, 0)
+                self.assertIs(response["about"]["following"], expected)
+                self.assertEqual(len(self.requests), 4)
+                self.assertIn(("self-followings", {"limit": 40, "offset": 0}), self.requests)
+
+    async def test_named_public_profile_survives_invalid_saved_session(self):
+        def invalid_session(_session_id):
+            raise ValueError("Expired session")
+
+        self.module.scapi.session_login = invalid_session
+        code, response = await self.run_main(
+            "griffpatch", "about", "10", "0", "1",
+            payload={"session_id": "expired"},
+        )
+        self.assertEqual(code, 0)
+        self.assertIsNone(response["about"]["following"])
+        self.assertEqual(len(self.requests), 3)
 
     async def test_featured_label_varies_and_project_can_be_missing(self):
         self.featured_label = "Tutorial"
@@ -246,6 +362,16 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(code, 0)
         self.assertIsNone(response["about"]["featured_project"])
+
+    def test_featured_label_uses_site_name_and_unknown_label_id(self):
+        featured = {
+            "featured_project_data": {"id": "4242", "title": "Project"},
+            "featured_project_label_name": "A custom label",
+            "featured_project_label_id": 999,
+        }
+        self.assertEqual(
+            self.module.serialize_featured(featured)["label"], "A custom label"
+        )
 
     async def test_about_rejects_non_profile_html(self):
         with self.assertRaises(self.module.InvalidProfileResponse):

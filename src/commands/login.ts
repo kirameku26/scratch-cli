@@ -3,6 +3,7 @@ import {
   saveConfig,
 } from "../config";
 import { fail } from "../errors.ts";
+import { checkSession, httpFailure, REQUEST_TIMEOUT_MS, type ScratchFetch } from "../scratch-session.ts";
 
 function getCookie(
   headers: Headers,
@@ -21,58 +22,6 @@ function getCookie(
   }
 
   return undefined;
-}
-
-async function isLoggedIn(): Promise<boolean> {
-  const config = await loadConfig();
-
-  if (!config.scratchsessionsid) {
-    return false;
-  }
-
-  try {
-    const res = await fetch(
-      "https://scratch.mit.edu/session/",
-      {
-        method: "GET",
-        headers: {
-          "scratchsessionsid":
-            config.scratchsessionsid,
-
-          "X-Requested-With":
-            "XMLHttpRequest",
-
-          "Referer":
-            "https://scratch.mit.edu/",
-
-          "Cookie": [
-            `scratchsessionsid=${config.scratchsessionsid}`,
-
-            config.scratchcsrftoken
-              ? `scratchcsrftoken=${config.scratchcsrftoken}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("; "),
-        },
-      },
-    );
-
-    if (!res.ok) {
-      return false;
-    }
-
-    const session: unknown = await res.json();
-
-    return Boolean(
-      session
-      && typeof session === "object"
-      && "user" in session
-      && session.user,
-    );
-  } catch {
-    return false;
-  }
 }
 
 async function readInput(
@@ -94,49 +43,76 @@ async function readInput(
   }
 }
 
-async function readHiddenInput(
+export async function readHiddenInput(
   message: string,
 ): Promise<string> {
   process.stdout.write(message);
-
-  Bun.spawnSync([
-    "bash",
-    "-c",
-    "stty -echo",
-  ]);
-
-  const reader =
-    Bun.stdin.stream().getReader();
-
-  try {
-    const { value } = await reader.read();
-
-    return new TextDecoder()
-      .decode(value)
-      .trim();
-  } finally {
-    reader.releaseLock();
-
-    Bun.spawnSync([
-      "bash",
-      "-c",
-      "stty echo",
-    ]);
-
-    process.stdout.write("\n");
-  }
+  const input = process.stdin;
+  const setRawMode = input.setRawMode?.bind(input);
+  if (!setRawMode) throw new Error("Hidden input requires an interactive terminal.");
+  return await new Promise<string>((resolve, reject) => {
+    let value = "";
+    const cleanup = () => {
+      input.off("data", onData);
+      setRawMode(false);
+      input.pause();
+      process.stdout.write("\n");
+    };
+    const onData = (chunk: Buffer | string) => {
+      for (const character of String(chunk)) {
+        if (character === "\r" || character === "\n") {
+          cleanup();
+          resolve(value);
+          return;
+        }
+        if (character === "\u0003") {
+          cleanup();
+          reject(new Error("Input cancelled."));
+          return;
+        }
+        if (character === "\u007f" || character === "\b") {
+          value = value.slice(0, -1);
+        } else if (character >= " ") {
+          value += character;
+        }
+      }
+    };
+    setRawMode(true);
+    input.setEncoding("utf8");
+    input.resume();
+    input.on("data", onData);
+  });
 }
 
-export async function login(argv: {
-  username?: string;
-} = {}) {
-  // すでにログインしているか確認
-  if (await isLoggedIn()) {
+type LoginDependencies = {
+  loadConfig: typeof loadConfig;
+  saveConfig: typeof saveConfig;
+  fetch: ScratchFetch;
+  readInput: typeof readInput;
+  readHiddenInput: typeof readHiddenInput;
+  interactive: () => boolean;
+  fail: typeof fail;
+};
+
+export async function login(argv: { username?: string } = {}) {
+  await loginWithDependencies({ loadConfig, saveConfig, fetch, readInput, readHiddenInput,
+    interactive: () => Boolean(process.stdin.isTTY), fail }, argv);
+}
+
+export async function loginWithDependencies(dependencies: LoginDependencies, argv: { username?: string } = {}) {
+  const { loadConfig, saveConfig, fetch, readInput, readHiddenInput, fail } = dependencies;
+  const config = await loadConfig();
+  const status = await checkSession(config, fetch);
+  if (status.state === "error") {
+    fail(status.message);
+    return;
+  }
+  if (status.state === "authenticated") {
     console.log("Already logged in.");
     return;
   }
 
-  if (!process.stdin.isTTY) {
+  if (!dependencies.interactive()) {
     fail("Login requires an interactive terminal.");
     return;
   }
@@ -144,8 +120,8 @@ export async function login(argv: {
   let username = argv.username;
 
   if (!username) {
-    username =
-      await readInput("Username: ");
+    try { username = await readInput("Username: "); }
+    catch { fail("Could not read the username."); return; }
   }
 
   if (!username) {
@@ -153,8 +129,9 @@ export async function login(argv: {
     return;
   }
 
-  const password =
-    await readHiddenInput("Password: ");
+  let password: string;
+  try { password = await readHiddenInput("Password: "); }
+  catch { fail("Could not read the password securely. Login cancelled."); return; }
 
   if (!password) {
     fail("Password must not be empty.");
@@ -168,6 +145,7 @@ export async function login(argv: {
       "https://scratch.mit.edu/csrf_token/",
       {
         method: "GET",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         headers: {
           "X-Requested-With":
             "XMLHttpRequest",
@@ -179,9 +157,7 @@ export async function login(argv: {
     );
 
     if (!csrfRes.ok) {
-      fail(
-        `Failed to get CSRF token: ${csrfRes.status}`,
-      );
+      fail(httpFailure(csrfRes, "CSRF token request"));
       return;
     }
 
@@ -200,6 +176,7 @@ export async function login(argv: {
       "https://scratch.mit.edu/accounts/login/",
       {
         method: "POST",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 
         headers: {
           "Content-Type":
@@ -230,6 +207,10 @@ export async function login(argv: {
     );
 
     if (!loginRes.ok) {
+      if (loginRes.status === 429) {
+        fail(httpFailure(loginRes, "Login"));
+        return;
+      }
       let message = "";
 
       try {
@@ -291,19 +272,20 @@ export async function login(argv: {
       return;
     }
 
-    const config =
-      await loadConfig();
-
-    config.scratchcsrftoken =
-      scratchcsrftoken;
-
-    config.scratchsessionsid =
-      scratchsessionsid;
-
-    config["x-token"] =
-      xToken;
-
-    await saveConfig(config);
+    const current = await loadConfig();
+    if (current.scratchsessionsid !== config.scratchsessionsid) {
+      fail("The active session changed during login. The new saved login was kept.");
+      return;
+    }
+    try {
+      await saveConfig({ ...current,
+        scratchcsrftoken: getCookie(loginRes.headers, "scratchcsrftoken") ?? scratchcsrftoken,
+        scratchsessionsid, "x-token": xToken,
+      });
+    } catch {
+      fail("Login succeeded, but the credentials could not be saved.");
+      return;
+    }
 
     console.log("Login successful.");
   } catch {

@@ -1,5 +1,6 @@
 import { fail } from "../errors.ts";
 import { venvDir } from "./index.ts";
+import { spawnScratchPython } from "./process.ts";
 
 const pythonPath = `${venvDir}/bin/python`;
 const scriptPath = new URL("./explore.py", import.meta.url);
@@ -28,6 +29,7 @@ type ExploreArguments = {
   category: ProjectCategory;
   limit: number;
   offset: number;
+  language: string;
 };
 
 function isExploreResponse(
@@ -66,11 +68,9 @@ export async function explore({
   category,
   limit,
   offset,
+  language,
 }: ExploreArguments): Promise<void> {
-  let result: ReturnType<typeof Bun.spawnSync>;
-
-  try {
-    result = Bun.spawnSync([
+  const result = spawnScratchPython([
       pythonPath,
       scriptPath.pathname,
       type,
@@ -78,14 +78,9 @@ export async function explore({
       category,
       String(limit),
       String(offset),
-    ], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch {
-    fail("Python environment is not ready. Run `scc python` first.");
-    return;
-  }
+      language,
+    ]);
+  if (!result) return;
 
   const stdout = new TextDecoder().decode(result.stdout).trim();
 
